@@ -3,6 +3,7 @@
 //! play where one player's device hosts the match (no internet server).
 
 mod ai;
+mod assets;
 mod audio;
 mod game;
 mod net;
@@ -76,6 +77,23 @@ pub fn rrect(x: f32, y: f32, w: f32, h: f32, r: f32, c: Color) {
     circ(x + w - r, y + r, r, c);
     circ(x + r, y + h - r, r, c);
     circ(x + w - r, y + h - r, r, c);
+}
+pub fn tex_draw(tex: &Texture2D, x: f32, y: f32, w: f32, h: f32, col: Color, flip_x: bool, rot: f32) {
+    draw_texture_ex(
+        tex,
+        px(x),
+        py(y),
+        col,
+        DrawTextureParams {
+            dest_size: Some(vec2(sc(w), sc(h))),
+            flip_x,
+            rotation: rot,
+            ..Default::default()
+        },
+    );
+}
+pub fn tex_center(tex: &Texture2D, cx: f32, cy: f32, w: f32, h: f32, col: Color, flip_x: bool, rot: f32) {
+    tex_draw(tex, cx - w * 0.5, cy - h * 0.5, w, h, col, flip_x, rot);
 }
 pub fn text_w(t: &str, size: f32) -> f32 {
     let fs = sc(size).max(1.0);
@@ -276,32 +294,14 @@ pub struct App {
     pub hud: HudFlags,
     pub held: [Input; 2],
     lost: bool,
-    crowd: Vec<(f32, f32, Color, f32)>,
+    assets: assets::Assets,
+    pub my_power: u8, // PK_* or POWER_KINDS for "random"
 }
 
 const LEVEL_NAMES: [&str; 3] = ["Facil", "Normal", "Dificil"];
 
 impl App {
-    fn new(sounds: Option<audio::Sounds>) -> App {
-        let mut crowd = vec![];
-        let mut r = 12345u32;
-        let mut rnd = || {
-            r ^= r << 13;
-            r ^= r >> 17;
-            r ^= r << 5;
-            (r % 10000) as f32 / 10000.0
-        };
-        let palette = [0xe8d35a, 0xd9533b, 0x4aa3df, 0xf0f0f0, 0x60c060, 0xf29a38, 0x9a6ad6, 0x2f3c66];
-        let mut y = 268.0;
-        while y < 460.0 {
-            let mut x = 4.0 + rnd() * 10.0;
-            while x < W {
-                let c = hex(palette[(rnd() * palette.len() as f32) as usize % palette.len()]);
-                crowd.push((x, y, c, rnd() * 6.28));
-                x += 15.0 + rnd() * 7.0;
-            }
-            y += 22.0;
-        }
+    fn new(sounds: Option<audio::Sounds>, assets: assets::Assets) -> App {
         App {
             screen: Screen::Menu,
             mode: Mode::Cpu,
@@ -328,7 +328,8 @@ impl App {
             hud: HudFlags::default(),
             held: [Input::default(); 2],
             lost: false,
-            crowd,
+            assets,
+            my_power: POWER_KINDS,
         }
     }
 
@@ -341,6 +342,36 @@ impl App {
         self.acc = 0.0;
         self.lost = false;
         self.particles.clear();
+        // each player brings a power (random when "Aleatorio" is chosen)
+        let mine = self.pick_power();
+        let other = rand::gen_range(0, POWER_KINDS as u32) as u8;
+        match mode {
+            Mode::Host => {
+                self.sim.p[0].pkind = mine;
+                self.sim.p[1].pkind = self.host.as_ref().map(|h| h.remote_pkind).unwrap_or(other);
+            }
+            Mode::Client => {}
+            _ => {
+                self.sim.p[0].pkind = mine;
+                self.sim.p[1].pkind = other;
+            }
+        }
+    }
+
+    fn pick_power(&self) -> u8 {
+        if self.my_power >= POWER_KINDS {
+            rand::gen_range(0, POWER_KINDS as u32) as u8
+        } else {
+            self.my_power
+        }
+    }
+
+    fn power_label(&self) -> String {
+        if self.my_power >= POWER_KINDS {
+            "Poder: Aleatorio".into()
+        } else {
+            format!("Poder: {}", POWER_NAMES[self.my_power as usize])
+        }
     }
 
     fn leave_network(&mut self) {
@@ -406,6 +437,17 @@ impl App {
             self.shake = 0.15;
             self.burst(self.sim.ball.x, self.sim.ball.y, 16, hex(0xffa020));
         }
+        if ev & EV_BOOM != 0 {
+            self.shake = 0.35;
+            for c in [hex(0xff5a1a), hex(0xffd34d), hex(0x555555)] {
+                self.burst(self.sim.ball.x, self.sim.ball.y, 18, c);
+            }
+        }
+        if ev & EV_FREEZE != 0 {
+            for c in [hex(0x9fe6ff), WHITE] {
+                self.burst(self.sim.ball.x, self.sim.ball.y, 12, c);
+            }
+        }
         let Some(s) = self.sounds.as_ref() else { return };
         if !self.sound_on {
             return;
@@ -421,6 +463,9 @@ impl App {
             (EV_POWER, &s.power, 0.7),
             (EV_FIRE, &s.power, 0.9),
             (EV_STUN, &s.stun, 0.7),
+            (EV_BOOM, &s.goal, 1.0),
+            (EV_BOOM, &s.bounce, 1.0),
+            (EV_FREEZE, &s.post, 0.6),
         ];
         for (bit, snd, vol) in list {
             if ev & bit != 0 {
@@ -507,6 +552,13 @@ impl App {
             let b = self.sim.ball;
             self.particles.push(Particle { x: b.x, y: b.y, vx: -b.vx * 0.1 + rand::gen_range(-40.0, 40.0), vy: -b.vy * 0.1 - 60.0, life: 0.0, max: 0.35, r: rand::gen_range(6.0, 12.0), c: hex(0xff8a1a) });
         }
+        let b = self.sim.ball;
+        if b.ice > 0.0 && rand::gen_range(0.0, 1.0) < 0.7 {
+            self.particles.push(Particle { x: b.x, y: b.y, vx: rand::gen_range(-60.0, 60.0), vy: rand::gen_range(-80.0, 0.0), life: 0.0, max: 0.4, r: rand::gen_range(2.5, 5.0), c: hex(0xbff0ff) });
+        }
+        if b.bomb > 0.0 && rand::gen_range(0.0, 1.0) < 0.5 {
+            self.particles.push(Particle { x: b.x, y: b.y - b.r(), vx: rand::gen_range(-30.0, 30.0), vy: -120.0, life: 0.0, max: 0.3, r: 3.0, c: hex(0xffe14a) });
+        }
     }
 
     // ------------------------------------------------------------ frame
@@ -550,18 +602,28 @@ impl App {
     }
 
     fn draw_backdrop(&self) {
-        self.draw_field(false);
-        rectv(0.0, 0.0, W, H, with_a(hex(0x0a0f24), 0.62));
+        tex_draw(&self.assets.menu_bg, 0.0, 0.0, W, H, WHITE, false, 0.0);
+        rectv(0.0, 0.0, W, H, with_a(hex(0x0a0f24), 0.42));
     }
 
     fn menu(&mut self) {
-        self.draw_backdrop();
-        // title
+        tex_draw(&self.assets.menu_bg, 0.0, 0.0, W, H, WHITE, false, 0.0);
+        rectv(0.0, 0.0, W, H, with_a(hex(0x080d1e), 0.22));
+        // title logo and showcase characters
         let t = self.now as f32;
-        circ(640.0, 120.0 + (t * 2.0).sin() * 4.0, 34.0, WHITE);
-        draw_ball_spots(640.0, 120.0 + (t * 2.0).sin() * 4.0, 34.0, t);
-        text_o("CABECADA", 640.0, 215.0, 88.0, hex(0xffd34d));
-        text_o("futebol de cabeca 1 contra 1  -  sem internet, sem servidor", 640.0, 252.0, 24.0, hex(0xcfe3ff));
+        let bob1 = (t * 2.8).sin() * 6.0;
+        let bob2 = (t * 2.8 + 1.6).sin() * 6.0;
+        // Player 1 showcase (left)
+        ellipse(190.0, 520.0, 58.0, 14.0, with_a(BLACK, 0.35));
+        tex_center(&self.assets.p1_boot, 198.0, 496.0 + bob1 * 0.3, 96.0, 64.0, WHITE, false, -0.05);
+        tex_center(&self.assets.p1_head, 190.0, 412.0 + bob1, 168.0, 168.0, WHITE, false, (t * 1.4).sin() * 0.04);
+        // Player 2 showcase (right)
+        ellipse(1090.0, 520.0, 58.0, 14.0, with_a(BLACK, 0.35));
+        tex_center(&self.assets.p2_boot, 1082.0, 496.0 + bob2 * 0.3, 96.0, 64.0, WHITE, true, 0.05);
+        tex_center(&self.assets.p2_head, 1090.0, 412.0 + bob2, 168.0, 168.0, WHITE, true, -(t * 1.4).sin() * 0.04);
+
+        tex_center(&self.assets.logo, 640.0, 130.0 + (t * 2.2).sin() * 4.0, 470.0, 235.0, WHITE, false, 0.0);
+        text_o("futebol de cabeca 1 contra 1  -  sem internet, sem servidor", 640.0, 260.0, 24.0, hex(0xe4f0ff));
 
         let bx = 390.0;
         let bw = 500.0;
@@ -589,7 +651,8 @@ impl App {
         }
         if self.button("Entrar em partida (rede local)", bx, 525.0, bw, 66.0, hex(0x8a3fc0)) {
             match net::Client::new() {
-                Ok(c) => {
+                Ok(mut c) => {
+                    c.pkind = self.pick_power();
                     self.client = Some(c);
                     self.status.clear();
                     self.screen = Screen::JoinLobby;
@@ -599,13 +662,17 @@ impl App {
             return;
         }
         let small = hex(0x34405e);
-        if self.button(&format!("Computador: {}", LEVEL_NAMES[self.level]), 170.0, 618.0, 300.0, 52.0, small) {
+        let label = self.power_label();
+        if self.button(&label, 40.0, 618.0, 330.0, 52.0, hex(0x8a5a10)) {
+            self.my_power = (self.my_power + 1) % (POWER_KINDS + 1);
+        }
+        if self.button(&format!("Computador: {}", LEVEL_NAMES[self.level]), 385.0, 618.0, 290.0, 52.0, small) {
             self.level = (self.level + 1) % 3;
         }
-        if self.button(&format!("Tempo: {} s", MATCH_LENGTHS[self.len_idx] as i32), 490.0, 618.0, 300.0, 52.0, small) {
+        if self.button(&format!("Tempo: {} s", MATCH_LENGTHS[self.len_idx] as i32), 690.0, 618.0, 250.0, 52.0, small) {
             self.len_idx = (self.len_idx + 1) % 3;
         }
-        if self.button(if self.sound_on { "Som: ligado" } else { "Som: desligado" }, 810.0, 618.0, 300.0, 52.0, small) {
+        if self.button(if self.sound_on { "Som: ligado" } else { "Som: desligado" }, 955.0, 618.0, 285.0, 52.0, small) {
             self.sound_on = !self.sound_on;
         }
         if !self.status.is_empty() {
@@ -756,10 +823,11 @@ impl App {
     fn match_overlays(&mut self) {
         let sim = self.sim.clone();
         // pause button
-        let pause_hit = self.clicked().map(|(x, y)| (x - 640.0).powi(2) + (y - 112.0).powi(2) < 26.0f32.powi(2)).unwrap_or(false);
-        circ(640.0, 112.0, 20.0, with_a(BLACK, 0.45));
-        rectv(632.0, 102.0, 5.0, 20.0, WHITE);
-        rectv(643.0, 102.0, 5.0, 20.0, WHITE);
+        let pause_hit = self.clicked().map(|(x, y)| (x - 640.0).powi(2) + (y - 126.0).powi(2) < 24.0f32.powi(2)).unwrap_or(false);
+        circ(640.0, 126.0, 18.0, with_a(BLACK, 0.55));
+        circ_line(640.0, 126.0, 18.0, 2.0, with_a(WHITE, 0.55));
+        rectv(633.0, 117.0, 4.5, 18.0, WHITE);
+        rectv(642.5, 117.0, 4.5, 18.0, WHITE);
         if (pause_hit || is_key_pressed(KeyCode::Escape) || is_key_pressed(KeyCode::P)) && !self.paused {
             self.paused = true;
             return;
@@ -842,157 +910,161 @@ impl App {
     // ------------------------------------------------------------ match drawing
 
     fn draw_field(&self, live: bool) {
-        let t = self.now as f32;
-        // sky
-        let top = hex(0x2a3f8f);
-        let bot = hex(0xf2a65a);
-        for i in 0..24 {
-            let k = i as f32 / 24.0;
-            rectv(0.0, k * 270.0, W, 270.0 / 24.0 + 1.0, mix(top, bot, k));
-        }
-        circ(1040.0, 150.0, 46.0, with_a(hex(0xffe9a8), 0.9));
-        // stand roof and floodlights
-        rectv(0.0, 236.0, W, 18.0, hex(0x2a2f45));
-        for lx in [150.0, 1130.0] {
-            rectv(lx - 4.0, 120.0, 8.0, 120.0, hex(0x3b4260));
-            rrect(lx - 40.0, 96.0, 80.0, 30.0, 6.0, hex(0x3b4260));
-            for j in 0..4 {
-                circ(lx - 27.0 + j as f32 * 18.0, 111.0, 6.0, hex(0xfff6d0));
-            }
-        }
-        // stands with crowd
-        rectv(0.0, 254.0, W, 216.0, hex(0x2c3350));
-        for row in 0..9 {
-            rectv(0.0, 262.0 + row as f32 * 22.0, W, 2.0, hex(0x363e60));
-        }
-        let cheer = live && (self.sim.phase == Phase::Goal || self.sim.phase == Phase::Over);
-        for &(x, y, c, ph) in &self.crowd {
-            let bob = if cheer { ((t * 14.0 + ph).sin()).abs() * 6.0 } else { (t * 2.0 + ph).sin() * 1.0 };
-            circ(x, y - bob, 6.0, mix(c, hex(0x2c3350), 0.35));
-            circ(x, y - 9.0 - bob, 4.5, mix(hex(0xe0b48a), hex(0x2c3350), 0.35));
-        }
-        // boards
-        rectv(0.0, 470.0, W, 36.0, hex(0x1d2236));
-        let board = [0x2d6fd0, 0xd0402d, 0x2f8f4e, 0xe0a020];
-        for i in 0..8 {
-            let x = i as f32 * 160.0 + 6.0;
-            rectv(x, 474.0, 148.0, 28.0, hex(board[i % 4]));
-            rectv(x + 14.0, 484.0, 120.0, 8.0, with_a(WHITE, 0.55));
-        }
-        // pitch
-        for i in 0..10 {
-            let c = if i % 2 == 0 { hex(0x3f9a3c) } else { hex(0x4aa845) };
-            rectv(i as f32 * 128.0, 506.0, 128.0, 214.0, c);
-        }
-        rectv(0.0, 506.0, W, 3.0, with_a(WHITE, 0.6));
-        rectv(638.0, 506.0, 4.0, 214.0, with_a(WHITE, 0.6));
-        draw_ellipse_lines(px(640.0), py(600.0), sc(150.0), sc(40.0), 0.0, sc(3.0), with_a(WHITE, 0.6));
-        rectv(0.0, GROUND, W, 2.0, with_a(BLACK, 0.12));
-        // goal nets (behind players)
-        for left in [true, false] {
-            let x0 = if left { 0.0 } else { W - GOAL_DEPTH };
-            rectv(x0, BAR_Y + BAR_H, GOAL_DEPTH, GROUND - BAR_Y - BAR_H, with_a(hex(0x10161a), 0.35));
-            let mut gx = x0;
-            while gx <= x0 + GOAL_DEPTH {
-                linev(gx, BAR_Y + BAR_H, gx, GROUND, 1.5, with_a(WHITE, 0.45));
-                gx += 14.0;
-            }
-            let mut gy = BAR_Y + BAR_H;
-            while gy <= GROUND {
-                linev(x0, gy, x0 + GOAL_DEPTH, gy, 1.5, with_a(WHITE, 0.45));
-                gy += 14.0;
-            }
+        tex_draw(&self.assets.stadium_bg, 0.0, 0.0, W, H, WHITE, false, 0.0);
+        if live && (self.sim.phase == Phase::Goal || self.sim.phase == Phase::Over) {
+            let t = self.now as f32;
+            let pulse = 0.05 + 0.07 * (t * 10.0).sin().abs();
+            rectv(0.0, 0.0, W, H, with_a(hex(0xffe14a), pulse));
         }
     }
 
     fn draw_goal_frames(&self) {
-        for left in [true, false] {
-            let bx = if left { 0.0 } else { W - BAR_LEN };
-            rectv(bx, BAR_Y + 4.0, BAR_LEN, BAR_H, with_a(BLACK, 0.3));
-            rectv(bx, BAR_Y, BAR_LEN, BAR_H, hex(0xf4f4f4));
-            rectv(bx, BAR_Y + BAR_H - 3.0, BAR_LEN, 3.0, hex(0xc8c8c8));
-            let post = if left { GOAL_DEPTH - 3.0 } else { W - GOAL_DEPTH - 3.0 };
-            rectv(post, BAR_Y, 6.0, GROUND - BAR_Y, with_a(hex(0xf4f4f4), 0.85));
-        }
+        let gw = 152.0;
+        let gh = GROUND - BAR_Y + 26.0;
+        let gy = BAR_Y - 12.0;
+        tex_draw(&self.assets.goal_left, -8.0, gy, gw, gh, WHITE, false, 0.0);
+        tex_draw(&self.assets.goal_left, W - gw + 8.0, gy, gw, gh, WHITE, true, 0.0);
     }
 
     fn draw_player(&self, i: usize) {
         let p = self.sim.p[i];
         let s = p.side;
-        let (shirt, shirt2, hair, skin, boot) = if i == 0 {
-            (hex(0x2d6fd0), hex(0x1d4c96), hex(0x3a2418), hex(0xf0c397), hex(0x15171f))
+        let flip = s < 0.0;
+        let (head_tex, boot_tex) = if i == 0 {
+            (&self.assets.p1_head, &self.assets.p1_boot)
         } else {
-            (hex(0xd8432f), hex(0x9c2a1d), hex(0xe9c75a), hex(0xd99a6c), hex(0xf2f2f2))
+            (&self.assets.p2_head, &self.assets.p2_boot)
         };
         let x = p.x;
         let y = p.y;
-        // shadow
+        // ground shadow
         let lift = (GROUND - (y + FEET)).max(0.0);
         let k = (1.0 - lift / 300.0).max(0.3);
-        ellipse(x, GROUND + 2.0, 40.0 * k, 8.0 * k, with_a(BLACK, 0.28 * k));
+        ellipse(x, GROUND + 4.0, 44.0 * k, 10.0 * k, with_a(BLACK, 0.34 * k));
         // power aura
         if p.power_ready > 0.0 {
-            let pulse = (self.now as f32 * 12.0).sin() * 4.0;
-            circ(x, y + 10.0, HEAD_R + 22.0 + pulse, with_a(hex(0xff8a1a), 0.25));
-            circ(x, y + 10.0, HEAD_R + 12.0 + pulse, with_a(hex(0xffc04a), 0.25));
+            let pulse = (self.now as f32 * 12.0).sin() * 5.0;
+            circ(x, y + 8.0, HEAD_R + 28.0 + pulse, with_a(hex(0xff8a1a), 0.28));
+            circ(x, y + 8.0, HEAD_R + 16.0 + pulse, with_a(hex(0xffe14a), 0.32));
         }
-        // back foot
-        let walk = (p.walk).sin() * 6.0;
-        let back = (x - s * 10.0 - walk * s, y + FEET - FOOT_R + 2.0);
-        linev(x - s * 4.0, y + BODY_OFF + 8.0, back.0, back.1, 9.0, skin);
-        ellipse(back.0 + s * 4.0, back.1 + 4.0, 17.0, 9.0, mix(boot, BLACK, 0.3));
-        // body
-        circ(x, y + BODY_OFF, BODY_R, shirt);
-        rectv(x - BODY_R * 0.8, y + BODY_OFF + 8.0, BODY_R * 1.6, 10.0, shirt2);
-        // kicking leg
+        // back boot (subtle walk step)
+        let walk = p.walk.sin() * 7.0;
+        let back_x = x - s * 10.0 - walk * s;
+        let back_y = y + FEET - 16.0;
+        let back_rot = if p.on_ground { -walk * 0.025 * s } else { 0.15 * s };
+        tex_center(boot_tex, back_x, back_y, 56.0, 38.0, Color::new(0.72, 0.72, 0.78, 1.0), flip, back_rot);
+        // kicking front boot
         let (fx, fy) = p.foot();
-        linev(x + s * 4.0, y + BODY_OFF + 8.0, fx, fy, 10.0, skin);
-        ellipse(fx + s * 4.0, fy + 3.0, 19.0, 10.0, boot);
-        ellipse(fx + s * 4.0, fy + 1.0, 12.0, 3.0, with_a(if i == 0 { WHITE } else { hex(0xd8432f) }, 0.9));
-        // head
-        circ(x, y + 2.0, HEAD_R + 2.0, with_a(BLACK, 0.35));
-        circ(x, y, HEAD_R, skin);
-        // hair: a cap over the top and back of the head
-        circ(x - s * 6.0, y - 14.0, HEAD_R * 0.86, hair);
-        circ(x + s * 8.0, y + 6.0, HEAD_R * 0.82, skin);
-        // ear
-        circ(x - s * 10.0, y + 4.0, 9.0, mix(skin, BLACK, 0.1));
-        // eye looking at the ball
-        let ex = x + s * 20.0;
-        let ey = y - 2.0;
-        if p.stun > 0.0 {
-            linev(ex - 8.0, ey - 8.0, ex + 8.0, ey + 8.0, 4.0, BLACK);
-            linev(ex - 8.0, ey + 8.0, ex + 8.0, ey - 8.0, 4.0, BLACK);
-            let t = self.now as f32 * 6.0;
+        let kick_rot = if p.kick_t >= 0.0 {
+            let kk = (p.kick_t / KICK_TIME).clamp(0.0, 1.0);
+            let swing = (kk * std::f32::consts::PI).sin();
+            if p.kick_kind == 2 {
+                -s * 0.72 * swing
+            } else {
+                -s * 0.38 * swing
+            }
+        } else if p.on_ground {
+            walk * 0.025 * s
+        } else {
+            -0.12 * s
+        };
+        tex_center(boot_tex, fx + s * 2.0, fy + 2.0, 66.0, 44.0, WHITE, flip, kick_rot);
+        // big caricature head
+        let bob = if p.on_ground && p.vx.abs() > 10.0 {
+            -(p.walk * 2.0).sin().abs() * 3.5
+        } else {
+            0.0
+        };
+        let head_rot = if p.stun > 0.0 {
+            (self.now as f32 * 18.0).sin() * 0.24
+        } else {
+            (p.vx / MOVE_SPEED) * 0.08
+        };
+        let head_tint = if p.stun > 0.0 {
+            Color::new(1.0, 0.82, 0.82, 1.0)
+        } else if p.power_ready > 0.0 {
+            Color::new(1.0, 0.96, 0.84, 1.0)
+        } else {
+            WHITE
+        };
+        let frozen = p.frozen > 0.0;
+        let head_rot = if frozen { 0.0 } else { head_rot };
+        let head_tint = if frozen { Color::new(0.62, 0.86, 1.0, 1.0) } else { head_tint };
+        tex_center(head_tex, x, y - 2.0 + bob, 112.0, 112.0, head_tint, flip, head_rot);
+        if frozen {
+            // an ice block around the player
+            rrect(x - 62.0, y - 62.0, 124.0, FEET + 66.0, 14.0, with_a(hex(0xbff0ff), 0.38));
+            rect_line(x - 60.0, y - 60.0, 120.0, FEET + 62.0, 3.0, with_a(WHITE, 0.7));
+            linev(x - 40.0, y - 50.0, x - 10.0, y - 20.0, 3.0, with_a(WHITE, 0.6));
+        }
+        // orbiting dizzy stars when stunned
+        if p.stun > 0.0 && !frozen {
+            let t = self.now as f32 * 6.5;
             for j in 0..3 {
                 let a = t + j as f32 * 2.09;
-                star(x + a.cos() * 34.0, y - HEAD_R - 12.0 + a.sin() * 8.0, 7.0, hex(0xffe14a));
+                star(x + a.cos() * 38.0, y - HEAD_R - 14.0 + a.sin() * 9.0, 8.0, hex(0xffe14a));
             }
-        } else {
-            ellipse(ex, ey, 12.0, 13.0, WHITE);
-            let bx = self.sim.ball.x - ex;
-            let by = self.sim.ball.y - ey;
-            let l = (bx * bx + by * by).sqrt().max(1.0);
-            circ(ex + bx / l * 5.0, ey + by / l * 5.0, 6.0, hex(0x1a1a22));
-            linev(ex - 12.0, ey - 18.0, ex + 10.0, ey - 15.0 - s * 2.0, 4.0, mix(hair, BLACK, 0.3));
         }
-        // nose and mouth
-        circ(x + s * 36.0, y + 10.0, 7.0, mix(skin, hex(0xc06040), 0.25));
-        let open = if p.kick_t >= 0.0 { 6.0 } else { 2.5 };
-        ellipse(x + s * 22.0, y + 24.0, 9.0, open, hex(0x6a2a24));
+    }
+
+    /// How visible the ball is on this device (the invisible power hides it from the opponent).
+    fn ball_alpha(&self) -> f32 {
+        let b = self.sim.ball;
+        if b.invis <= 0.0 {
+            return 1.0;
+        }
+        let owner = b.invis_owner as usize;
+        let mine = self.local_players();
+        let seen_by_owner_only = !(self.mode == Mode::Local2 || (self.mode == Mode::Cpu && self.ai_both));
+        // fade in during the last half second
+        let back = (1.0 - b.invis / 0.5).clamp(0.0, 1.0);
+        let base: f32 = if seen_by_owner_only && mine.contains(&owner) {
+            0.35
+        } else {
+            // a faint shimmer now and then
+            let t = self.now as f32;
+            if (t * 1.5).fract() < 0.08 { 0.15 } else { 0.0 }
+        };
+        base.max(back)
     }
 
     fn draw_ball(&self) {
         let b = self.sim.ball;
-        let lift = (GROUND - (b.y + BALL_R)).max(0.0);
+        let r = b.r();
+        let alpha = self.ball_alpha();
+        let lift = (GROUND - (b.y + r)).max(0.0);
         let k = (1.0 - lift / 400.0).max(0.25);
-        ellipse(b.x, GROUND + 2.0, 22.0 * k, 5.0 * k, with_a(BLACK, 0.3 * k));
-        if b.fire > 0.0 {
-            circ(b.x, b.y, BALL_R + 10.0, with_a(hex(0xff6a00), 0.45));
+        ellipse(b.x, GROUND + 4.0, 24.0 * k * r / BALL_R, 6.0 * k, with_a(BLACK, 0.34 * k * alpha));
+        let tint = if b.ice > 0.0 {
+            Color::new(0.65, 0.9, 1.0, alpha)
+        } else if b.bomb > 0.0 {
+            let blink = if (b.bomb * if b.bomb < 0.8 { 12.0 } else { 5.0 }).fract() < 0.5 { 1.0 } else { 0.0 };
+            Color::new(0.35 + 0.65 * blink, 0.3, 0.3, alpha)
+        } else {
+            Color::new(1.0, 1.0, 1.0, alpha)
+        };
+        // fake balls from the clone power look exactly like the real one
+        if b.clone_t > 0.0 {
+            for c in b.clones {
+                tex_center(&self.assets.ball, c[0], c[1], BALL_R * 2.15, BALL_R * 2.15, WHITE, false, b.angle);
+            }
         }
-        circ(b.x, b.y, BALL_R + 1.5, with_a(BLACK, 0.5));
-        circ(b.x, b.y, BALL_R, if b.fire > 0.0 { hex(0xffe0a0) } else { WHITE });
-        draw_ball_spots(b.x, b.y, BALL_R, b.angle);
+        if b.fire > 0.0 {
+            circ(b.x, b.y, r + 12.0, with_a(hex(0xff6a00), 0.40 * alpha));
+            let d = r * 3.15;
+            tex_center(&self.assets.ball_fire, b.x, b.y, d, d, Color::new(1.0, 1.0, 1.0, alpha), false, b.angle * 0.45);
+        } else {
+            if b.ice > 0.0 {
+                circ(b.x, b.y, r + 8.0, with_a(hex(0x9fe6ff), 0.45 * alpha));
+            }
+            let d = r * 2.15;
+            tex_center(&self.assets.ball, b.x, b.y, d, d, tint, false, b.angle);
+            if b.bomb > 0.0 && alpha > 0.0 {
+                // fuse
+                linev(b.x, b.y - r, b.x + 8.0, b.y - r - 14.0, 3.0, hex(0x6b4a2a));
+                circ(b.x + 8.0, b.y - r - 15.0, 4.0, hex(0xffd34d));
+            }
+        }
     }
 
     fn draw_match(&mut self) {
@@ -1022,14 +1094,16 @@ impl App {
     fn draw_hud(&mut self) {
         let sim = &self.sim;
         // scoreboard
-        rrect(470.0, 10.0, 340.0, 74.0, 16.0, with_a(hex(0x0b1022), 0.85));
-        rrect(478.0, 18.0, 84.0, 58.0, 12.0, hex(0x2d6fd0));
-        rrect(718.0, 18.0, 84.0, 58.0, 12.0, hex(0xd8432f));
-        text_o(&sim.score[0].to_string(), 520.0, 66.0, 54.0, WHITE);
-        text_o(&sim.score[1].to_string(), 760.0, 66.0, 54.0, WHITE);
+        let sb_x = 450.0;
+        let sb_y = 2.0;
+        let sb_w = 380.0;
+        let sb_h = 104.0;
+        tex_draw(&self.assets.scoreboard, sb_x, sb_y, sb_w, sb_h, WHITE, false, 0.0);
+        text_o(&sim.score[0].to_string(), sb_x + sb_w * 0.241, 74.0, 50.0, hex(0x9be2ff));
+        text_o(&sim.score[1].to_string(), sb_x + sb_w * 0.759, 74.0, 50.0, hex(0xffa49b));
         let tl = sim.time_left.max(0.0).ceil() as i32;
-        let tcol = if tl <= 10 && sim.phase == Phase::Play { hex(0xff6a5a) } else { WHITE };
-        text_o(&format!("{}:{:02}", tl / 60, tl % 60), 640.0, 62.0, 44.0, tcol);
+        let tcol = if tl <= 10 && sim.phase == Phase::Play { hex(0xff6a5a) } else { hex(0xffe14a) };
+        text_o(&format!("{}:{:02}", tl / 60, tl % 60), 640.0, 68.0, 26.0, tcol);
         self.hud.score = true;
         self.hud.timer = true;
         // names and power bars
@@ -1051,8 +1125,15 @@ impl App {
                 let fx = if i == 0 { bx + 4.0 } else { bx + 356.0 - fw };
                 rrect(fx, 48.0, fw, 18.0, 9.0, col);
             }
-            let label = if p.power_ready > 0.0 { "CHUTE AGORA!" } else if p.power >= 1.0 { "PODER PRONTO!" } else { "PODER" };
-            text_o(label, bx + 180.0, 64.0, 18.0, WHITE);
+            let pname = POWER_NAMES[(p.pkind % POWER_KINDS) as usize].to_uppercase();
+            let label = if p.power_ready > 0.0 {
+                format!("{}: CHUTE AGORA!", pname)
+            } else if p.power >= 1.0 {
+                format!("{} PRONTO!", pname)
+            } else {
+                format!("PODER: {}", pname)
+            };
+            text_o(&label, bx + 180.0, 64.0, 18.0, WHITE);
         }
         self.hud.power = true;
 
@@ -1084,6 +1165,7 @@ impl App {
     }
 
     fn draw_touch_buttons(&mut self) {
+        let t = self.now as f32;
         for b in touch_layout(self.mode) {
             let inp = self.held[b.who];
             let down = match b.kind {
@@ -1096,44 +1178,27 @@ impl App {
             };
             let p = self.sim.p[b.who];
             let ready = p.power >= 1.0 || p.power_ready > 0.0;
-            let base = match b.kind {
-                Btn::Kick | Btn::Lob => hex(0xd8432f),
-                Btn::Jump => hex(0x2d6fd0),
-                Btn::Power => {
-                    if ready {
-                        mix(hex(0xff8a1a), hex(0xffe14a), 0.5 + 0.5 * (self.now as f32 * 8.0).sin())
-                    } else {
-                        hex(0x555a66)
-                    }
-                }
-                _ => hex(0x2a2f45),
+            let (tex, flip) = match b.kind {
+                Btn::Left => (&self.assets.btn_left, false),
+                Btn::Right => (&self.assets.btn_left, true),
+                Btn::Kick => (&self.assets.btn_kick, b.who == 1),
+                Btn::Lob => (&self.assets.btn_lob, b.who == 1),
+                Btn::Jump => (&self.assets.btn_jump, b.who == 1),
+                Btn::Power => (&self.assets.btn_power, false),
             };
-            let a = if down { 0.85 } else { 0.5 };
-            circ(b.x, b.y, b.r, with_a(base, a));
-            circ_line(b.x, b.y, b.r, 3.0, with_a(WHITE, 0.6));
-            let r = b.r;
-            let c = with_a(WHITE, 0.9);
-            match b.kind {
-                Btn::Left => tri((b.x - r * 0.45, b.y), (b.x + r * 0.3, b.y - r * 0.45), (b.x + r * 0.3, b.y + r * 0.45), c),
-                Btn::Right => tri((b.x + r * 0.45, b.y), (b.x - r * 0.3, b.y - r * 0.45), (b.x - r * 0.3, b.y + r * 0.45), c),
-                Btn::Jump => {
-                    tri((b.x, b.y - r * 0.5), (b.x - r * 0.42, b.y + r * 0.05), (b.x + r * 0.42, b.y + r * 0.05), c);
-                    text_o("PULO", b.x, b.y + r * 0.55, r * 0.36, WHITE);
-                }
-                Btn::Kick => {
-                    ellipse(b.x, b.y - r * 0.12, r * 0.42, r * 0.22, c);
-                    text_o("CHUTE", b.x, b.y + r * 0.5, r * 0.32, WHITE);
-                }
-                Btn::Lob => {
-                    let s = if b.who == 0 { 1.0 } else { -1.0 };
-                    linev(b.x - s * r * 0.35, b.y + r * 0.1, b.x + s * r * 0.35, b.y - r * 0.4, 4.0, c);
-                    text_o("ALTO", b.x, b.y + r * 0.6, r * 0.36, WHITE);
-                }
-                Btn::Power => {
-                    star(b.x, b.y - r * 0.12, r * 0.4, c);
-                    text_o("PODER", b.x, b.y + r * 0.62, r * 0.32, WHITE);
-                }
-            }
+            let pulse = if b.kind == Btn::Power && ready {
+                1.0 + 0.06 * (t * 8.0).sin()
+            } else {
+                1.0
+            };
+            let scale = if down { 0.90 } else { 1.0 } * pulse;
+            let sz = b.r * 2.05 * scale;
+            let tint = match b.kind {
+                Btn::Power if !ready => Color::new(0.45, 0.45, 0.48, 0.62),
+                _ if down => WHITE,
+                _ => Color::new(1.0, 1.0, 1.0, 0.88),
+            };
+            tex_center(tex, b.x, b.y, sz, sz, tint, flip, 0.0);
         }
         self.hud.buttons = true;
     }
@@ -1149,15 +1214,6 @@ fn star(x: f32, y: f32, r: f32, c: Color) {
     circ(x, y, r * 0.45, c);
 }
 
-fn draw_ball_spots(x: f32, y: f32, r: f32, angle: f32) {
-    let dark = hex(0x1d1f26);
-    circ(x, y, r * 0.3, dark);
-    for k in 0..5 {
-        let a = angle + k as f32 * 1.2566;
-        circ(x + a.cos() * r * 0.72, y + a.sin() * r * 0.72, r * 0.2, dark);
-        linev(x + a.cos() * r * 0.3, y + a.sin() * r * 0.3, x + a.cos() * r * 0.6, y + a.sin() * r * 0.6, r * 0.07, with_a(dark, 0.6));
-    }
-}
 
 // ---------------------------------------------------------------- start-up
 
@@ -1197,7 +1253,8 @@ fn parse_args() -> Run {
 async fn amain(run: Run, prev_fg: isize) {
     let quiet = !matches!(run, Run::Normal);
     let sounds = if quiet { None } else { audio::Sounds::load().await };
-    let mut app = App::new(sounds);
+    let assets = assets::Assets::load();
+    let mut app = App::new(sounds, assets);
     match run {
         Run::Normal => loop {
             let dt = get_frame_time();

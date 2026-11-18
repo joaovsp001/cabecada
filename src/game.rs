@@ -54,6 +54,28 @@ pub const FIRE_TIME: f32 = 1.1;
 pub const FIRE_STUN: f32 = 1.6;
 pub const FIRE_KNOCK: f32 = 520.0;
 
+// the power each player brings (chosen before the match)
+pub const PK_FIRE: u8 = 0; // next kick: a fire shot straight at the goal
+pub const PK_BIG: u8 = 1; // the ball grows for a while
+pub const PK_ICE: u8 = 2; // next kick: an ice shot that freezes the opponent it hits
+pub const PK_INVIS: u8 = 3; // the ball disappears for the opponent
+pub const PK_BOMB: u8 = 4; // next kick: the ball becomes a bomb that blows the opponent away
+pub const PK_CLONE: u8 = 5; // next kick: two fake balls fly off beside the real one
+pub const POWER_KINDS: u8 = 6;
+pub const POWER_NAMES: [&str; 6] = ["Fogo", "Bola gigante", "Gelo", "Invisivel", "Bomba", "Clones"];
+
+pub const BIG_TIME: f32 = 7.0;
+pub const BIG_SCALE: f32 = 1.9;
+pub const ICE_SPEED: f32 = 1250.0;
+pub const ICE_TIME: f32 = 1.4;
+pub const FREEZE_TIME: f32 = 2.6;
+pub const INVIS_TIME: f32 = 4.0;
+pub const BOMB_FUSE: f32 = 2.2;
+pub const BOMB_RADIUS: f32 = 220.0;
+pub const BOMB_STUN: f32 = 1.8;
+pub const BOMB_KNOCK: f32 = 650.0;
+pub const CLONE_TIME: f32 = 4.5;
+
 pub const COUNTDOWN: f32 = 3.0;
 pub const GOAL_PAUSE: f32 = 2.2;
 pub const KICKOFF_READY: f32 = 1.0;
@@ -72,6 +94,8 @@ pub const EV_POWER: u32 = 64;
 pub const EV_STUN: u32 = 128;
 pub const EV_BEEP: u32 = 256;
 pub const EV_FIRE: u32 = 512;
+pub const EV_BOOM: u32 = 1024;
+pub const EV_FREEZE: u32 = 2048;
 
 #[derive(Clone, Copy, Default, Debug, PartialEq)]
 pub struct Input {
@@ -130,6 +154,8 @@ pub struct Player {
     pub power: f32, // 0..1
     pub power_ready: f32,
     pub walk: f32, // walk animation phase
+    pub pkind: u8, // which power this player brings (PK_*)
+    pub frozen: f32, // frozen in ice (also counts as stunned)
 }
 
 impl Player {
@@ -148,6 +174,7 @@ impl Player {
         self.kick_hit = false;
         self.kick_cd = 0.0;
         self.stun = 0.0;
+        self.frozen = 0.0;
         self.power_ready = 0.0;
     }
     pub fn body(&self) -> (f32, f32) {
@@ -179,6 +206,25 @@ pub struct Ball {
     pub angle: f32,
     pub fire: f32,
     pub fire_owner: u8,
+    pub big: f32,
+    pub ice: f32,
+    pub ice_owner: u8,
+    pub invis: f32,
+    pub invis_owner: u8,
+    pub bomb: f32,
+    pub bomb_owner: u8,
+    pub clone_t: f32,
+    pub clones: [[f32; 4]; 2], // x, y, vx, vy of the fake balls
+}
+
+impl Ball {
+    pub fn r(&self) -> f32 {
+        if self.big > 0.0 {
+            BALL_R * BIG_SCALE
+        } else {
+            BALL_R
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -345,6 +391,10 @@ impl Sim {
                     p.power_ready = 0.0;
                 }
             }
+            if p.frozen > 0.0 {
+                p.frozen -= dt;
+                p.stun = p.stun.max(p.frozen);
+            }
             let stunned = p.stun > 0.0;
             if stunned {
                 p.stun -= dt;
@@ -385,8 +435,15 @@ impl Sim {
             }
             if !stunned && inp.power && !pin.power && p.power >= 1.0 && self.phase == Phase::Play {
                 p.power = 0.0;
-                p.power_ready = POWER_READY_TIME;
                 self.events |= EV_POWER;
+                match p.pkind {
+                    PK_BIG => self.ball.big = BIG_TIME,
+                    PK_INVIS => {
+                        self.ball.invis = INVIS_TIME;
+                        self.ball.invis_owner = i as u8;
+                    }
+                    _ => p.power_ready = POWER_READY_TIME, // the next kick carries it
+                }
             }
             if p.kick_t >= 0.0 {
                 p.kick_t += dt;
@@ -490,9 +547,40 @@ impl Sim {
         let (fx, fy) = p.foot();
         // the ball
         let d = len(self.ball.x - fx, self.ball.y - fy);
-        if d < BALL_R + FOOT_R + KICK_REACH {
+        if d < self.ball.r() + FOOT_R + KICK_REACH {
             let s = p.side;
-            if p.power_ready > 0.0 {
+            if p.power_ready > 0.0 && p.pkind != PK_FIRE {
+                let (dx, dy, sp) = if p.kick_kind == 2 {
+                    (HIGH_KICK_DIR.0, HIGH_KICK_DIR.1, HIGH_KICK_SPEED)
+                } else {
+                    (LOW_KICK_DIR.0, LOW_KICK_DIR.1, LOW_KICK_SPEED)
+                };
+                let b = &mut self.ball;
+                b.vx = s * dx * sp + p.vx * KICK_CARRY;
+                b.vy = dy * sp + p.vy.min(0.0) * KICK_CARRY;
+                b.fire = 0.0;
+                match p.pkind {
+                    PK_ICE => {
+                        // a flat, fast shot toward the opponent
+                        b.vx = s * ICE_SPEED;
+                        b.vy = -120.0;
+                        b.ice = ICE_TIME;
+                        b.ice_owner = i as u8;
+                    }
+                    PK_BOMB => {
+                        b.bomb = BOMB_FUSE;
+                        b.bomb_owner = i as u8;
+                    }
+                    PK_CLONE | _ => {
+                        // clones: two fake balls split above and below the real one
+                        b.clone_t = CLONE_TIME;
+                        let (vx, vy) = (b.vx, b.vy);
+                        b.clones = [[b.x, b.y, vx * 0.85, vy - 380.0], [b.x, b.y, vx * 1.1, vy + 300.0]];
+                    }
+                }
+                self.p[i].power_ready = 0.0;
+                self.events |= EV_FIRE;
+            } else if p.power_ready > 0.0 {
                 // power shot: straight at the far goal mouth
                 let gx = if s > 0.0 { W - GOAL_DEPTH * 0.5 } else { GOAL_DEPTH * 0.5 };
                 let gy = (BAR_Y + BAR_H + GROUND) * 0.5;
@@ -542,7 +630,55 @@ impl Sim {
         }
     }
 
+    fn step_powers(&mut self, dt: f32) {
+        let b = &mut self.ball;
+        b.big = (b.big - dt).max(0.0);
+        b.invis = (b.invis - dt).max(0.0);
+        b.ice = (b.ice - dt).max(0.0);
+        if b.clone_t > 0.0 {
+            b.clone_t -= dt;
+            for c in b.clones.iter_mut() {
+                c[3] += BALL_GRAVITY * dt;
+                c[0] += c[2] * dt;
+                c[1] += c[3] * dt;
+                if c[1] + BALL_R > GROUND {
+                    c[1] = GROUND - BALL_R;
+                    c[3] = -c[3].abs() * BALL_GROUND_E;
+                }
+                if c[1] - BALL_R < 0.0 {
+                    c[1] = BALL_R;
+                    c[3] = c[3].abs();
+                }
+                if c[0] - BALL_R < 0.0 || c[0] + BALL_R > W {
+                    c[0] = c[0].clamp(BALL_R, W - BALL_R);
+                    c[2] = -c[2] * BALL_WALL_E;
+                }
+            }
+        }
+        if b.bomb > 0.0 {
+            b.bomb -= dt;
+            if b.bomb <= 0.0 {
+                b.bomb = 0.0;
+                b.vy -= 500.0;
+                let (bx, by) = (b.x, b.y);
+                let o = 1 - b.bomb_owner as usize;
+                let q = &mut self.p[o];
+                let dx = q.x - bx;
+                let dy = q.y - by;
+                if len(dx, dy) < BOMB_RADIUS {
+                    q.stun = q.stun.max(BOMB_STUN);
+                    q.vx = if dx >= 0.0 { BOMB_KNOCK } else { -BOMB_KNOCK };
+                    q.vy = -520.0;
+                    self.events |= EV_STUN;
+                }
+                self.events |= EV_BOOM;
+            }
+        }
+    }
+
     fn step_ball(&mut self, dt: f32) {
+        self.step_powers(dt);
+        let br = self.ball.r();
         let b = &mut self.ball;
         if b.fire > 0.0 {
             b.fire -= dt;
@@ -559,10 +695,10 @@ impl Sim {
         }
         b.x += b.vx * dt;
         b.y += b.vy * dt;
-        b.angle += b.vx * dt / BALL_R;
+        b.angle += b.vx * dt / br;
         let mut ev = 0;
-        if b.y + BALL_R > GROUND {
-            b.y = GROUND - BALL_R;
+        if b.y + br > GROUND {
+            b.y = GROUND - br;
             if b.vy > 150.0 {
                 ev |= EV_BOUNCE;
             }
@@ -573,21 +709,21 @@ impl Sim {
             b.vx *= 1.0 - BALL_ROLL_FRICTION * dt;
             b.fire = 0.0;
         }
-        if b.y - BALL_R < 0.0 {
-            b.y = BALL_R;
+        if b.y - br < 0.0 {
+            b.y = br;
             b.vy = b.vy.abs() * BALL_WALL_E;
             b.fire = 0.0;
         }
-        if b.x - BALL_R < 0.0 {
-            b.x = BALL_R;
+        if b.x - br < 0.0 {
+            b.x = br;
             b.vx = b.vx.abs() * BALL_WALL_E;
         }
-        if b.x + BALL_R > W {
-            b.x = W - BALL_R;
+        if b.x + br > W {
+            b.x = W - br;
             b.vx = -b.vx.abs() * BALL_WALL_E;
         }
         for bx in [0.0, W - BAR_LEN] {
-            if let Some((nx, ny, d)) = circle_rect(b.x, b.y, BALL_R, bx, BAR_Y, BAR_LEN, BAR_H) {
+            if let Some((nx, ny, d)) = circle_rect(b.x, b.y, br, bx, BAR_Y, BAR_LEN, BAR_H) {
                 b.x += nx * d;
                 b.y += ny * d;
                 let vn = b.vx * nx + b.vy * ny;
@@ -613,8 +749,15 @@ impl Sim {
                 let dx = b.x - cx;
                 let dy = b.y - cy;
                 let d = len(dx, dy);
-                let min = r + BALL_R;
+                let min = r + br;
                 if d < min && d > 0.001 {
+                    if b.ice > 0.0 && b.ice_owner as usize != i && self.p[i].frozen <= 0.0 {
+                        self.p[i].frozen = FREEZE_TIME;
+                        self.p[i].stun = FREEZE_TIME;
+                        self.p[i].vx = 0.0;
+                        b.ice = 0.0;
+                        self.events |= EV_FREEZE;
+                    }
                     if fire_through {
                         // a power shot knocks the player away and keeps going
                         if self.p[i].stun <= 0.0 {
@@ -656,9 +799,10 @@ impl Sim {
 
     fn check_goal(&mut self) {
         let b = self.ball;
-        let scorer = if b.x < GOAL_DEPTH - BALL_R && b.y > BAR_Y + BAR_H {
+        let br = b.r();
+        let scorer = if b.x < GOAL_DEPTH - br && b.y > BAR_Y + BAR_H {
             Some(1u8)
-        } else if b.x > W - GOAL_DEPTH + BALL_R && b.y > BAR_Y + BAR_H {
+        } else if b.x > W - GOAL_DEPTH + br && b.y > BAR_Y + BAR_H {
             Some(0u8)
         } else {
             None
@@ -669,6 +813,9 @@ impl Sim {
             self.phase = Phase::Goal;
             self.phase_t = GOAL_PAUSE;
             self.ball.fire = 0.0;
+            self.ball.bomb = 0.0;
+            self.ball.ice = 0.0;
+            self.ball.clone_t = 0.0;
             for p in self.p.iter_mut() {
                 p.power_ready = 0.0;
                 p.kick_t = -1.0;
@@ -693,6 +840,8 @@ impl Sim {
             f(out, p.walk);
             out.push(p.kick_kind);
             out.push(p.on_ground as u8);
+            out.push(p.pkind);
+            f(out, p.frozen);
         }
         let b = &self.ball;
         for v in [b.x, b.y, b.vx, b.vy, b.angle, b.fire] {
@@ -706,6 +855,17 @@ impl Sim {
         out.push(self.phase.to_u8());
         f(out, self.phase_t);
         out.push(self.last_scorer);
+        for v in [b.big, b.ice, b.invis, b.bomb, b.clone_t] {
+            f(out, v);
+        }
+        out.push(b.ice_owner);
+        out.push(b.invis_owner);
+        out.push(b.bomb_owner);
+        for c in b.clones {
+            for v in c {
+                f(out, v);
+            }
+        }
         out.extend_from_slice(&self.events.to_le_bytes());
     }
 
@@ -724,6 +884,8 @@ impl Sim {
             p.walk = r.f()?;
             p.kick_kind = r.u()?;
             p.on_ground = r.u()? != 0;
+            p.pkind = r.u()?;
+            p.frozen = r.f()?;
         }
         s.ball.x = r.f()?;
         s.ball.y = r.f()?;
@@ -739,6 +901,19 @@ impl Sim {
         s.phase = Phase::from_u8(r.u()?);
         s.phase_t = r.f()?;
         s.last_scorer = r.u()?;
+        s.ball.big = r.f()?;
+        s.ball.ice = r.f()?;
+        s.ball.invis = r.f()?;
+        s.ball.bomb = r.f()?;
+        s.ball.clone_t = r.f()?;
+        s.ball.ice_owner = r.u()?;
+        s.ball.invis_owner = r.u()?;
+        s.ball.bomb_owner = r.u()?;
+        for c in s.ball.clones.iter_mut() {
+            for v in c.iter_mut() {
+                *v = r.f()?;
+            }
+        }
         let e = r.take(4)?;
         s.events = u32::from_le_bytes([e[0], e[1], e[2], e[3]]);
         Some(s)

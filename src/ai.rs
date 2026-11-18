@@ -8,6 +8,7 @@ pub struct AiMem {
     pub timer: f32,
     pub held: Input,
     pub rng: u32,
+    pub seen: Ball, // where the ball was last seen (the invisible power hides it)
 }
 
 pub struct Level {
@@ -48,7 +49,12 @@ pub fn think(sim: &Sim, me: usize, level: usize, mem: &mut AiMem, dt: f32) -> In
     mem.timer = lv.reaction;
     let p = sim.p[me];
     let o = sim.p[1 - me];
-    let b = sim.ball;
+    let b = if sim.ball.invis > 0.0 && sim.ball.invis_owner as usize != me {
+        mem.seen // it can only guess from the last place it saw the ball
+    } else {
+        mem.seen = sim.ball;
+        sim.ball
+    };
     let s = p.side;
     let own_goal = if s > 0.0 { 0.0 } else { W };
     let mut inp = Input::default();

@@ -39,9 +39,19 @@ Evidence `ev_81d7c9451d939569b7b50eae7291f7a9f848db260d1f393ab5ca08f1b819f407` (
 | share of own speed added | 25 % |
 | kicking the opponent | knocks them down 0.9 s |
 
-## Super power (estimated)
-- The bar fills in 20 s of play, +5 % for each touch of the ball.
-- Full bar + power button: the next kick within 6 s is a power shot at 1550 px/s straight at the far goal, ignoring gravity for 1.1 s; it knocks down the defender it hits (1.6 s) and keeps going.
+## Super powers (estimated)
+The original ships sound effects for these ball powers (file names in the game package, evidence `ev_873c7191ee3537003c166561572c3aa057d3deb44a33452216b6402f987330f0`: fireball, big ball, freeze ball, invisible ball, bomb ball, clone ball). How each one behaves there isn't readable, so the effects below are this game's own versions.
+
+- The bar fills in 20 s of play, +5 % for each touch of the ball (no gain while a power waits for its kick).
+- Each player brings one power, chosen in the menu ("Aleatorio" picks one at random). The computer and the second local player get a random one; in network play each device picks its own.
+- Full bar + power button:
+  - **Fogo**: the next kick within 6 s is a shot at 1550 px/s straight at the far goal, ignoring gravity for 1.1 s; it knocks down the defender it hits (1.6 s) and keeps going.
+  - **Bola gigante**: the ball grows to 1.9x its size (40 px radius) for 7 s, at once.
+  - **Gelo**: the next kick is a flat shot at 1250 px/s; if it touches the opponent within 1.4 s they are frozen in ice for 2.6 s.
+  - **Invisivel**: the ball disappears for the opponent for 4 s (the owner still sees a faint ball; it fades back in over the last 0.5 s; the computer only knows where it last saw it).
+  - **Bomba**: the next kick arms a 2.2 s fuse; when it goes off, an opponent within 220 px is thrown 650 px/s away and knocked down 1.8 s; the ball jumps up.
+  - **Clones**: the next kick also sends two fake balls (one higher, one lower) that bounce around for 4.5 s and can't score or be touched.
+- A goal clears every active power effect except the big ball.
 
 ## Match (estimated)
 - 1 v 1, goals at both ends (goal line 86 px from the wall, crossbar top at 388 px, ground at 620 px).

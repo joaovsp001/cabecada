@@ -1,7 +1,5 @@
 # Credits
 
-No files from the original game are used. Everything you see and hear is drawn and synthesized by the game's own code (shapes, colours, simple waves and noise).
-
-The original game (an Android package the person owns) was only studied for how a match is controlled; see MECHANICS.md.
+No files from any third-party commercial game are used. All 2D artwork in `assets/` (stadium, menu backdrop, title logo, characters, boots, balls, goals, scoreboard, and touch buttons) was created originally for Cabecada, and all sound effects are synthesized procedurally by the game's own code.
 
 Libraries: macroquad and miniquad (MIT/Apache-2.0).

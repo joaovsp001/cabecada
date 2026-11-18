@@ -13,13 +13,16 @@ pub struct SelfTest {
     y0: f32,
     miny: f32,
     bx0: f32,
+    sub: u8,
+    power_notes: Vec<String>,
+    power_ok: bool,
 }
 
 const DT: f32 = 1.0 / 60.0;
 
 impl SelfTest {
     pub fn new() -> SelfTest {
-        SelfTest { stage: 0, f: 0, steps: vec![], x0: 0.0, y0: 0.0, miny: 0.0, bx0: 0.0 }
+        SelfTest { stage: 0, f: 0, steps: vec![], x0: 0.0, y0: 0.0, miny: 0.0, bx0: 0.0, sub: 1, power_notes: vec![], power_ok: true }
     }
 
     fn push(&mut self, step: &str, ok: bool, detail: String) {
@@ -101,6 +104,7 @@ impl SelfTest {
             5 => {
                 if f == 0 {
                     Self::place_kick(app, 400.0);
+                    app.sim.p[0].pkind = PK_FIRE;
                     app.sim.p[0].power = 1.0;
                 }
                 inp[0].power = f == 1;
@@ -114,6 +118,63 @@ impl SelfTest {
                 }
             }
             6 => {
+                // the other five powers, one after another
+                let k = self.sub;
+                if f == 0 {
+                    Self::place_kick(app, 400.0);
+                    app.sim.p[0].pkind = k;
+                    app.sim.p[0].power = 1.0;
+                    app.sim.p[1].x = 720.0; // in the path of the shot
+                }
+                inp[0].power = f == 1;
+                inp[0].kick = f == 4;
+                let b = app.sim.ball;
+                let name = POWER_NAMES[k as usize];
+                let mut result: Option<(bool, String)> = None;
+                match k {
+                    PK_BIG if f == 8 => result = Some((b.big > 0.0 && b.r() > BALL_R * 1.5, format!("{}: ball radius {:.0} px", name, b.r()))),
+                    PK_ICE if f == 40 => {
+                        let q = app.sim.p[1];
+                        result = Some((q.frozen > 0.0, format!("{}: opponent frozen {:.1} s", name, q.frozen.max(0.0))));
+                    }
+                    PK_INVIS if f == 8 => result = Some((b.invis > 0.0, format!("{}: ball hidden for {:.1} s", name, b.invis))),
+                    PK_BOMB => {
+                        if f == 10 {
+                            if b.bomb <= 0.0 {
+                                result = Some((false, format!("{}: the kick did not arm the bomb", name)));
+                            } else {
+                                // bring the opponent next to it and let it go off
+                                app.sim.p[1].x = b.x + 60.0;
+                                app.sim.p[1].y = GROUND - FEET;
+                                app.sim.ball.bomb = 0.02;
+                            }
+                        }
+                        if f == 16 {
+                            let q = app.sim.p[1];
+                            result = Some((q.stun > 0.0, format!("{}: explosion knocked the opponent down for {:.1} s", name, q.stun.max(0.0))));
+                        }
+                    }
+                    PK_CLONE if f == 20 => {
+                        let c = b.clones;
+                        let apart = (c[0][1] - c[1][1]).abs() > 30.0;
+                        result = Some((b.clone_t > 0.0 && apart, format!("{}: two fake balls flying", name)));
+                    }
+                    _ => {}
+                }
+                if let Some((ok, note)) = result {
+                    self.power_ok &= ok;
+                    self.power_notes.push(format!("{}{}", note, if ok { "" } else { " (FAILED)" }));
+                    self.f = 0;
+                    self.sub += 1;
+                    if self.sub >= POWER_KINDS {
+                        let notes = self.power_notes.join("; ");
+                        let ok = self.power_ok;
+                        self.push("powers", ok, notes);
+                    }
+                    return false;
+                }
+            }
+            7 => {
                 if f == 0 {
                     app.start_match(Mode::Cpu);
                     app.level = 1;

@@ -68,6 +68,7 @@ pub struct Host {
     pub peer: Option<SocketAddr>,
     last_seen: f64,
     pub remote: Input,
+    pub remote_pkind: u8,
     remote_seq: u32,
     seq: u32,
     beacon_t: f64,
@@ -80,7 +81,7 @@ impl Host {
         sock.set_nonblocking(true)?;
         let _ = sock.set_broadcast(true);
         let port = sock.local_addr()?.port();
-        Ok(Host { sock, port, peer: None, last_seen: 0.0, remote: Input::default(), remote_seq: 0, seq: 0, beacon_t: -10.0, name: name.to_string() })
+        Ok(Host { sock, port, peer: None, last_seen: 0.0, remote: Input::default(), remote_pkind: 0, remote_seq: 0, seq: 0, beacon_t: -10.0, name: name.to_string() })
     }
 
     pub fn connected(&self, now: f64) -> bool {
@@ -104,6 +105,9 @@ impl Host {
                                 }
                                 self.peer = Some(from);
                                 self.last_seen = now;
+                                if let Some(k) = pl.first() {
+                                    self.remote_pkind = *k % crate::game::POWER_KINDS;
+                                }
                                 let _ = self.sock.send_to(&packet(T_WELCOME, &[]), from);
                             }
                         }
@@ -188,6 +192,7 @@ pub struct Client {
     discover_t: f64,
     pub last_seen: f64,
     pub host_left: bool,
+    pub pkind: u8,
 }
 
 impl Client {
@@ -213,6 +218,7 @@ impl Client {
             discover_t: -10.0,
             last_seen: 0.0,
             host_left: false,
+            pkind: 0,
         })
     }
 
@@ -296,7 +302,9 @@ impl Client {
         if let Some(h) = self.host {
             if !self.welcomed && now - self.hello_t > 0.3 {
                 self.hello_t = now;
-                let _ = self.sock.send_to(&packet(T_HELLO, b"jogador"), h);
+                let mut pl = vec![self.pkind];
+                pl.extend_from_slice(b"jogador");
+                let _ = self.sock.send_to(&packet(T_HELLO, &pl), h);
             }
         } else if now - self.discover_t > 1.0 {
             self.discover_t = now;

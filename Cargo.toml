@@ -20,7 +20,6 @@ opt-level = 3
 package_name = "local.cabecada.futebol"
 label = "Cabecada"
 fullscreen = true
-orientation = "landscape"
 
 [package.metadata.android.activity_attributes]
 "android:screenOrientation" = "userLandscape"

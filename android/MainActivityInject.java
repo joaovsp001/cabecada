@@ -68,8 +68,10 @@ import android.net.wifi.WifiManager;
 //% MAIN_ACTIVITY_ON_CREATE
         cabecadaHideSystemBars();
         // The game engine can only start once per process: starting it again in the same
-        // process crashes. So when Android destroys this screen (a system setting changed,
-        // the app was closed), end the process too; the next start is then a clean one.
+        // process crashes. So when Android destroys this screen, end the process too.
+        // If Android is only re-creating the screen (a setting changed: rotation while
+        // opening, dark mode, display size...), first ask for a fresh start of the game,
+        // which then runs in a new, clean process.
         getApplication().registerActivityLifecycleCallbacks(new android.app.Application.ActivityLifecycleCallbacks() {
             public void onActivityCreated(Activity a, Bundle b) {}
             public void onActivityStarted(Activity a) {}
@@ -79,7 +81,19 @@ import android.net.wifi.WifiManager;
             public void onActivitySaveInstanceState(Activity a, Bundle b) {}
             public void onActivityDestroyed(Activity a) {
                 if (a == MainActivity.this) {
-                    Log.i("Cabecada", "screen destroyed: ending the process");
+                    boolean recreating = a.isChangingConfigurations();
+                    Log.i("Cabecada", "screen destroyed (finishing=" + a.isFinishing()
+                        + ", changed config=0x" + Integer.toHexString(a.getChangingConfigurations())
+                        + "): ending the process" + (recreating ? " and starting the game again" : ""));
+                    if (recreating) {
+                        try {
+                            Intent again = new Intent(a, MainActivity.class);
+                            again.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                            a.startActivity(again);
+                        } catch (Exception e) {
+                            Log.w("Cabecada", "could not start the game again: " + e);
+                        }
+                    }
                     android.os.Process.killProcess(android.os.Process.myPid());
                 }
             }

@@ -23,7 +23,8 @@ adb install -r "$APK" 2>&1 | tee "$OUT/install.txt"
 # the system bars; mark it as already seen so it does not cover the game in the test.
 adb shell settings put secure immersive_mode_confirmations confirmed
 adb logcat -c
-adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 2>&1 | tail -n 2 | tee "$OUT/start.txt"
+start_game() { adb shell am start -W -n "$PKG/.MainActivity" 2>&1 | tr -d '\r'; }
+start_game | tee "$OUT/start.txt"
 
 alive() { echo "$1: pid '$(adb shell pidof "$PKG" | tr -d '\r')'" | tee -a "$OUT/alive.txt"; }
 shot() { adb exec-out screencap -p > "$OUT/$1.png"; }
@@ -64,7 +65,7 @@ shot 05_back_again_continues
 
 key KEYCODE_HOME           # leave the app...
 sleep 3
-adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 > /dev/null 2>&1   # ...and come back
+start_game > /dev/null     # ...and come back
 sleep 4
 shot 06_back_from_home_paused
 alive "after home and back"
@@ -78,9 +79,20 @@ shot 08_quit_box
 tap 755 428                # "Continuar"
 sleep 2
 shot 09_menu_after_cancel
+alive "after the quit box"
+
+# A system setting that makes Android re-create the screen (dark mode): the game must
+# come back by itself, in a new process.
+adb shell cmd uimode night yes
+sleep 10
+shot 10_after_dark_mode
+alive "after dark mode on (a new pid is fine)"
+adb shell cmd uimode night no
+sleep 10
+shot 11_after_dark_mode_off
 alive "end"
 
 adb logcat -d -v threadtime > "$OUT/logcat.txt"
 echo "===== relevant log lines ====="
-grep -iE "cabecada|futebol|AndroidRuntime|FATAL|DEBUG +:|libc +:|SAPP|panicked|Process .* has died|Start proc|UnsatisfiedLink|linker" "$OUT/logcat.txt" | tail -n 300
+grep -iE "Cabecada|AndroidRuntime|FATAL|Fatal signal|Scudo|SAPP|panicked|Process .* has died|Start proc .*cabecada|UnsatisfiedLink" "$OUT/logcat.txt" | tail -n 300
 exit 0

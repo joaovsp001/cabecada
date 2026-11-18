@@ -1777,7 +1777,10 @@ impl App {
             text(&label, 30.0, 98.0, 22.0, hex(0xffe9a0));
         }
 
-        // big centre messages
+        // big centre messages (hidden while the pause or "connection lost" box is open)
+        if self.paused || self.lost {
+            return;
+        }
         match sim.phase {
             Phase::Countdown => {
                 // "versus" banner at the very start of the match

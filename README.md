@@ -19,7 +19,8 @@ Keyboard: A/D or arrows to move, W / Up / Space to jump, F / J / K to kick, G / 
 
 ## Building
 - Windows: `cargo build --release`.
-- Android: with cargo-quad-apk (`cargo quad-apk build --release`); the Android settings and network permission are in Cargo.toml.
+- Android, in the cloud (easiest): on GitHub open the **Actions** tab, pick **Android APK**, click **Run workflow**, and when it ends (about 5 minutes) download `cabecada-apk` from the run's **Artifacts**. Install the `.apk` on the phone (allow "install unknown apps"). The workflow is `.github/workflows/android.yml`; it uses the `notfl3/cargo-apk` image with the latest stable Rust and a version 3 `Cargo.lock` (the cargo inside cargo-quad-apk does not read version 4).
+- Android, on your own computer: with cargo-quad-apk (`cargo quad-apk build --release`), the Android SDK and NDK r25; the Android settings and network permission are in Cargo.toml (do not add an `orientation` key there: cargo-quad-apk rejects it, landscape comes from `activity_attributes`).
 
 Options for checks: `--self-test file.json` (the game plays itself and checks each part), `--shots folder` (a picture of every screen and power), `--screenshot file.png` (one match picture).
 

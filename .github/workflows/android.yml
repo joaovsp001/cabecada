@@ -1,11 +1,14 @@
 name: Android APK
 
-# Builds the phone version (APK) of Cabecada in the cloud.
-# Run it by hand: Actions tab -> "Android APK" -> Run workflow.
+# Builds the phone version (APK) of Cabecada in the cloud (takes about 5 minutes).
+# Run it by hand: Actions tab -> "Android APK" -> Run workflow. It also runs by itself
+# when game files change on main. The APK appears at the bottom of the run, in "Artifacts"
+# (cabecada-apk). It is signed with a debug key, which is fine for installing on a phone.
 on:
   workflow_dispatch:
   push:
-    branches: [android-build]
+    branches: [main]
+    paths: ['src/**', 'assets/**', 'Cargo.toml', 'Cargo.lock', '.github/workflows/android.yml']
 
 jobs:
   apk:

@@ -3,7 +3,11 @@ name: Android APK
 # Builds the phone version (APK) of Cabecada in the cloud (takes about 5 minutes).
 # Run it by hand: Actions tab -> "Android APK" -> Run workflow. It also runs by itself
 # when game files change on main. The APK appears at the bottom of the run, in "Artifacts"
-# (cabecada-apk). It is signed with a debug key, which is fine for installing on a phone.
+# (cabecada-apk).
+#
+# Signing: when the repository has the secrets ANDROID_KEYSTORE_BASE64 (the .jks file in
+# base64) and ANDROID_KEYSTORE_PASSWORD, every APK is signed with that same key, so a new
+# APK installs over the old one. Without them the APK keeps a throw-away debug signature.
 on:
   workflow_dispatch:
   push:
@@ -13,6 +17,8 @@ on:
 jobs:
   apk:
     runs-on: ubuntu-latest
+    env:
+      HAS_SIGNING_KEY: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -20,6 +26,13 @@ jobs:
       # Version 3 has the same content when there are no git dependencies.
       - name: Use lock file version 3
         run: sed -i 's/^version = 4$/version = 3/' Cargo.lock && head -3 Cargo.lock
+
+      # Android only installs an update when its version code is not lower than the
+      # installed one: use the run number, which grows with every build.
+      - name: Version code = run number
+        run: |
+          sed -i "s/^version_code = .*/version_code = ${{ github.run_number }}/" Cargo.toml
+          grep -E '^version_(code|name)' Cargo.toml
 
       - name: Build the APK (cargo-quad-apk in the notfl3/cargo-apk image)
         run: |
@@ -34,8 +47,26 @@ jobs:
             cargo quad-apk build --release
           '
 
+      - name: Sign with the project key
+        if: env.HAS_SIGNING_KEY == 'true'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          set -e
+          sudo chown -R "$(id -u):$(id -g)" target
+          printf '%s' "$KEYSTORE_BASE64" | tr -d '\r\n ' | base64 -d > "$RUNNER_TEMP/cabecada.jks"
+          export SIGNING_PASSWORD="$(printf '%s' "$KEYSTORE_PASSWORD" | tr -d '\r\n')"
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
+          APK=target/android-artifacts/release/apk/cabecada.apk
+          "$BT/apksigner" sign --ks "$RUNNER_TEMP/cabecada.jks" --ks-pass env:SIGNING_PASSWORD "$APK"
+          rm -f "$RUNNER_TEMP/cabecada.jks"
+          "$BT/apksigner" verify --print-certs "$APK" | grep -E 'Signer #1 certificate (DN|SHA-256)'
+
       - name: Show the result
-        run: ls -l target/android-artifacts/release/apk/
+        run: |
+          ls -l target/android-artifacts/release/apk/
+          if [ "$HAS_SIGNING_KEY" != "true" ]; then echo "::warning::No signing key secrets: this APK has a throw-away debug signature."; fi
 
       - uses: actions/upload-artifact@v4
         with:

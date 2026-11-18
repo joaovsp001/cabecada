@@ -28,6 +28,7 @@ Keyboard: A/D or arrows to move, W / Up / Space to jump, F / J / K to kick, G / 
   - The launcher icon is in `android/res` (made from `assets/icon_512.png` and `assets/icon_adaptive_fg.png`).
   - `quad.toml` adds the Java code in `android/MainActivityInject.java` to the app: real full screen (system bars hidden) and a Wi-Fi multicast lock so phones find matches on the local network.
 - On the phone the back button pauses a match, leaves the lobbies and, on the menu, asks before closing the game; a match pauses by itself when the app goes to the background.
+- Signing: with the repository secrets `ANDROID_KEYSTORE_BASE64` (the key file in base64) and `ANDROID_KEYSTORE_PASSWORD`, the workflow signs every APK with the same key, so a new APK installs over the old one; the version code is the run number, so it always goes up. Without the secrets the APK keeps a throw-away debug signature (then uninstall before installing a new one). Keep a private backup of the key: if it is lost, installed copies can no longer be updated.
 
 Options for checks: `--self-test file.json` (the game plays itself and checks each part), `--shots folder` (a picture of every screen and power), `--screenshot file.png` (one match picture).
 

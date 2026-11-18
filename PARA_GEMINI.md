@@ -112,4 +112,4 @@ Estas são ideias tiradas das strings do jogo original (veja `MECHANICS.md`). Or
 - O ícone do app fica em `android/res` (feito a partir de `assets/icon_512.png` e `assets/icon_adaptive_fg.png`). Se mudar o ícone, gere de novo todos os tamanhos (`mipmap-mdpi` a `mipmap-xxxhdpi`).
 - `quad.toml` e `android/MainActivityInject.java` acrescentam código Java ao app (tela cheia e busca de partidas no Wi-Fi). Cada bloco começa com `//% NOME` e termina com `//% END`.
 - No celular o botão voltar pausa a partida, sai das salas de rede e, no menu, pergunta antes de fechar o jogo (`src/platform.rs` fecha o app). A partida pausa sozinha quando o app vai para segundo plano.
-- Cada APK feito na nuvem tem uma assinatura nova; para instalar um APK novo por cima do antigo é preciso desinstalar o antigo antes.
+- Assinatura: o workflow assina o APK com a chave do projeto guardada nos segredos do repositório (`ANDROID_KEYSTORE_BASE64` e `ANDROID_KEYSTORE_PASSWORD`), então cada APK novo instala por cima do anterior. Não mude o `package_name` nem apague esses segredos. O `version_code` vem do número da execução do workflow (sempre cresce); não precisa mexer nele no `Cargo.toml`.

@@ -21,10 +21,13 @@ jobs:
       - name: Build the APK (cargo-quad-apk in the notfl3/cargo-apk image)
         run: |
           docker run --rm -v "$PWD":/root/src -w /root/src notfl3/cargo-apk sh -c '
-            set -x
-            rustc --version; cargo --version; rustup show
+            set -ex
+            # the image ships Rust 1.79, but some libraries (fontdue) need a newer one
+            rustup toolchain install stable --profile minimal \
+              -t armv7-linux-androideabi -t aarch64-linux-android -t i686-linux-android -t x86_64-linux-android
+            rustup default stable
+            rustc --version; cargo --version
             echo "ANDROID_HOME=$ANDROID_HOME NDK_HOME=$NDK_HOME"
-            ls "$NDK_HOME" || true
             cargo quad-apk build --release
           '
 

@@ -23,6 +23,8 @@ fullscreen = true
 
 [package.metadata.android.activity_attributes]
 "android:screenOrientation" = "userLandscape"
+# Android 12+ (target SDK 31) refuses to install an app whose launcher activity has no explicit "exported".
+"android:exported" = "true"
 
 [[package.metadata.android.permission]]
 name = "android.permission.INTERNET"

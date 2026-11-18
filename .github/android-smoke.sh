@@ -19,6 +19,9 @@ adb shell wm size | tee "$OUT/wm_size.txt"
 adb shell wm density | tee -a "$OUT/wm_size.txt"
 
 adb install -r "$APK" 2>&1 | tee "$OUT/install.txt"
+# Android shows a one-time "Viewing full screen / Got it" box the first time an app hides
+# the system bars; mark it as already seen so it does not cover the game in the test.
+adb shell settings put secure immersive_mode_confirmations confirmed
 adb logcat -c
 adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 2>&1 | tail -n 2 | tee "$OUT/start.txt"
 

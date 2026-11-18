@@ -47,10 +47,43 @@ import android.net.wifi.WifiManager;
             cabecadaHideSystemBars();
         }
     }
+
+    // The back button always goes to the game (it pauses a match, leaves the lobbies and
+    // asks before closing). Without this, when the game view is not focused Android
+    // handles back itself and closes the screen.
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (event.getKeyCode() == KeyEvent.KEYCODE_BACK) {
+            if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+                QuadNative.surfaceOnKeyDown(KeyEvent.KEYCODE_BACK);
+            } else if (event.getAction() == KeyEvent.ACTION_UP) {
+                QuadNative.surfaceOnKeyUp(KeyEvent.KEYCODE_BACK);
+            }
+            return true;
+        }
+        return super.dispatchKeyEvent(event);
+    }
 //% END
 
 //% MAIN_ACTIVITY_ON_CREATE
         cabecadaHideSystemBars();
+        // The game engine can only start once per process: starting it again in the same
+        // process crashes. So when Android destroys this screen (a system setting changed,
+        // the app was closed), end the process too; the next start is then a clean one.
+        getApplication().registerActivityLifecycleCallbacks(new android.app.Application.ActivityLifecycleCallbacks() {
+            public void onActivityCreated(Activity a, Bundle b) {}
+            public void onActivityStarted(Activity a) {}
+            public void onActivityResumed(Activity a) {}
+            public void onActivityPaused(Activity a) {}
+            public void onActivityStopped(Activity a) {}
+            public void onActivitySaveInstanceState(Activity a, Bundle b) {}
+            public void onActivityDestroyed(Activity a) {
+                if (a == MainActivity.this) {
+                    Log.i("Cabecada", "screen destroyed: ending the process");
+                    android.os.Process.killProcess(android.os.Process.myPid());
+                }
+            }
+        });
 //% END
 
 //% MAIN_ACTIVITY_ON_RESUME

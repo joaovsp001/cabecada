@@ -1,0 +1,33 @@
+name: Android APK
+
+# Builds the phone version (APK) of Cabecada in the cloud.
+# Run it by hand: Actions tab -> "Android APK" -> Run workflow.
+on:
+  workflow_dispatch:
+  push:
+    branches: [android-build]
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the APK (cargo-quad-apk in the notfl3/cargo-apk image)
+        run: |
+          docker run --rm -v "$PWD":/root/src -w /root/src notfl3/cargo-apk sh -c '
+            set -x
+            rustc --version; cargo --version; rustup show
+            echo "ANDROID_HOME=$ANDROID_HOME NDK_HOME=$NDK_HOME"
+            ls "$NDK_HOME" || true
+            cargo quad-apk build --release
+          '
+
+      - name: Show the result
+        run: find target/android-artifacts -name '*.apk' -exec ls -l {} \;
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cabecada-apk
+          path: target/android-artifacts/release/apk/*.apk
+          if-no-files-found: error

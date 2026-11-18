@@ -13,6 +13,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The cargo inside cargo-quad-apk does not understand lock file version 4.
+      # Version 3 has the same content when there are no git dependencies.
+      - name: Use lock file version 3
+        run: sed -i 's/^version = 4$/version = 3/' Cargo.lock && head -3 Cargo.lock
+
       - name: Build the APK (cargo-quad-apk in the notfl3/cargo-apk image)
         run: |
           docker run --rm -v "$PWD":/root/src -w /root/src notfl3/cargo-apk sh -c '

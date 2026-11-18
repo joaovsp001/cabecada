@@ -1,0 +1,5 @@
+# Build output
+/target
+
+# Local screenshots and self-test output
+/shots

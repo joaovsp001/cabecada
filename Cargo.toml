@@ -1,0 +1,38 @@
+[package]
+name = "cabecada"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+macroquad = { version = "0.4", default-features = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading"] }
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+# Android build (cargo-quad-apk). Needs the INTERNET permission for local-network play.
+[package.metadata.android]
+package_name = "local.cabecada.futebol"
+label = "Cabecada"
+fullscreen = true
+orientation = "landscape"
+
+[package.metadata.android.activity_attributes]
+"android:screenOrientation" = "userLandscape"
+
+[[package.metadata.android.permission]]
+name = "android.permission.INTERNET"
+
+[[package.metadata.android.permission]]
+name = "android.permission.ACCESS_WIFI_STATE"
+
+[[package.metadata.android.permission]]
+name = "android.permission.ACCESS_NETWORK_STATE"
+
+[[package.metadata.android.permission]]
+name = "android.permission.CHANGE_WIFI_MULTICAST_STATE"

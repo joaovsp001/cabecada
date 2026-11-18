@@ -107,6 +107,46 @@ pub fn tex_draw(tex: &Texture2D, x: f32, y: f32, w: f32, h: f32, col: Color, fli
 pub fn tex_center(tex: &Texture2D, cx: f32, cy: f32, w: f32, h: f32, col: Color, flip_x: bool, rot: f32) {
     tex_draw(tex, cx - w * 0.5, cy - h * 0.5, w, h, col, flip_x, rot);
 }
+pub fn tex_sub(tex: &Texture2D, sx: f32, sy: f32, sw: f32, sh: f32, x: f32, y: f32, w: f32, h: f32, col: Color, flip_x: bool, rot: f32) {
+    draw_texture_ex(
+        tex,
+        px(x),
+        py(y),
+        col,
+        DrawTextureParams {
+            dest_size: Some(vec2(sc(w), sc(h))),
+            source: Some(Rect::new(sx, sy, sw, sh)),
+            flip_x,
+            rotation: rot,
+            ..Default::default()
+        },
+    );
+}
+pub fn draw_9slice(tex: &Texture2D, x: f32, y: f32, w: f32, h: f32, col: Color) {
+    let tw = tex.width();
+    let th = tex.height();
+    let sc_c = 32.0_f32.min(tw * 0.4).min(th * 0.4);
+    let dc = (h * 0.34).min(w * 0.34).min(sc_c);
+    let sx = [0.0, sc_c, tw - sc_c, tw];
+    let sy = [0.0, sc_c, th - sc_c, th];
+    let dx = [x, x + dc, x + w - dc, x + w];
+    let dy = [y, y + dc, y + h - dc, y + h];
+    for row in 0..3 {
+        let dh = dy[row + 1] - dy[row];
+        let sh = sy[row + 1] - sy[row];
+        if dh <= 0.1 || sh <= 0.1 {
+            continue;
+        }
+        for c in 0..3 {
+            let dw = dx[c + 1] - dx[c];
+            let sw = sx[c + 1] - sx[c];
+            if dw <= 0.1 || sw <= 0.1 {
+                continue;
+            }
+            tex_sub(tex, sx[c], sy[row], sw, sh, dx[c], dy[row], dw, dh, col, false, 0.0);
+        }
+    }
+}
 thread_local! {
     static FONT: RefCell<Option<Font>> = const { RefCell::new(None) };
 }
@@ -133,6 +173,9 @@ fn load_game_font() {
                 return;
             }
         }
+    }
+    if let Ok(font) = load_ttf_font_from_bytes(assets::FONT_BYTES) {
+        FONT.with(|f| *f.borrow_mut() = Some(font));
     }
 }
 
@@ -336,6 +379,23 @@ struct Particle {
     c: Color,
 }
 
+#[derive(Clone, Copy)]
+enum FxKind {
+    Dust,
+    Kick,
+    Boom,
+}
+
+struct AnimFx {
+    kind: FxKind,
+    x: f32,
+    y: f32,
+    size: f32,
+    flip_x: bool,
+    life: f32,
+    max: f32,
+}
+
 #[derive(Default, Clone, Copy)]
 pub struct HudFlags {
     pub score: bool,
@@ -377,6 +437,9 @@ pub struct App {
     prev_kick: [bool; 2],
     tour: Option<Tour>,
     crowd_on: bool,
+    fx: Vec<AnimFx>,
+    char_idx: [usize; 2],
+    stadium_idx: usize,
 }
 
 /// A knock-out cup against the computer: three rounds, each harder than the last.
@@ -423,6 +486,9 @@ impl App {
             prev_kick: [false; 2],
             tour: None,
             crowd_on: false,
+            fx: vec![],
+            char_idx: [0, 1],
+            stadium_idx: 0,
         }
     }
 
@@ -443,10 +509,19 @@ impl App {
         self.acc = 0.0;
         self.lost = false;
         self.particles.clear();
+        self.fx.clear();
         self.prev_ground = [true; 2];
         self.prev_kick = [false; 2];
         if mode != Mode::Cpu {
             self.tour = None; // the cup is only against the computer
+        }
+        if let Some(t) = self.tour {
+            let r = t.round.min(2);
+            self.stadium_idx = r;
+            let boss = [1usize, 3, 5][r];
+            self.char_idx[1] = if boss == self.char_idx[0] { (boss + 1) % 6 } else { boss };
+        } else if self.char_idx[1] == self.char_idx[0] {
+            self.char_idx[1] = (self.char_idx[0] + 1) % 6;
         }
         // each player brings a power (random when "Aleatório" is chosen)
         let mine = self.pick_power();
@@ -553,8 +628,17 @@ impl App {
         }
         if ev & EV_BOOM != 0 {
             self.shake = 0.35;
+            self.fx.push(AnimFx {
+                kind: FxKind::Boom,
+                x: self.sim.ball.x,
+                y: self.sim.ball.y,
+                size: 260.0,
+                flip_x: false,
+                life: 0.0,
+                max: 0.48,
+            });
             for c in [hex(0xff5a1a), hex(0xffd34d), hex(0x555555)] {
-                self.burst(self.sim.ball.x, self.sim.ball.y, 18, c);
+                self.burst(self.sim.ball.x, self.sim.ball.y, 14, c);
             }
         }
         if ev & EV_FREEZE != 0 {
@@ -590,6 +674,15 @@ impl App {
 
     /// A puff of dust on the grass (landing, take-off).
     fn dust(&mut self, x: f32, y: f32, n: usize) {
+        self.fx.push(AnimFx {
+            kind: FxKind::Dust,
+            x,
+            y: y - 22.0,
+            size: 86.0,
+            flip_x: rand::gen_range(0, 2) == 0,
+            life: 0.0,
+            max: 0.36,
+        });
         for k in 0..n {
             let dir = if k % 2 == 0 { -1.0 } else { 1.0 };
             self.particles.push(Particle {
@@ -622,6 +715,15 @@ impl App {
             let kicking = p.kick_t >= 0.0;
             if kicking && !self.prev_kick[i] {
                 let (fx, fy) = p.foot();
+                self.fx.push(AnimFx {
+                    kind: FxKind::Kick,
+                    x: fx + p.side * 22.0,
+                    y: fy - 6.0,
+                    size: 92.0,
+                    flip_x: p.side < 0.0,
+                    life: 0.0,
+                    max: 0.22,
+                });
                 self.burst(fx + p.side * 20.0, fy, 4, with_a(WHITE, 1.0));
             }
             self.prev_kick[i] = kicking;
@@ -728,6 +830,10 @@ impl App {
             p.y += p.vy * dt;
         }
         self.particles.retain(|p| p.life < p.max);
+        for f in self.fx.iter_mut() {
+            f.life += dt;
+        }
+        self.fx.retain(|f| f.life < f.max);
         if self.sim.ball.fire > 0.0 && rand::gen_range(0.0, 1.0) < 0.8 {
             let b = self.sim.ball;
             self.particles.push(Particle { x: b.x, y: b.y, vx: -b.vx * 0.1 + rand::gen_range(-40.0, 40.0), vy: -b.vy * 0.1 - 60.0, life: 0.0, max: 0.35, r: rand::gen_range(6.0, 12.0), c: hex(0xff8a1a) });
@@ -894,13 +1000,35 @@ impl App {
         None
     }
 
+    fn menu_btn_tex(&self, col: Color) -> &Texture2D {
+        if col.g > col.r * 1.2 && col.g > col.b * 1.2 {
+            &self.assets.btn_menu_green
+        } else if col.r > 0.45 && col.b > 0.55 && col.g < 0.40 {
+            &self.assets.btn_menu_purple
+        } else if col.b > col.r * 1.25 && col.b > col.g * 1.1 {
+            // bright blue is the blue button, dark bluish is the grey one
+            if col.b < 0.5 { &self.assets.btn_menu_gray } else { &self.assets.btn_menu_blue }
+        } else if col.r > 0.65 && col.g > 0.50 && col.b < 0.25 {
+            &self.assets.btn_menu_gold
+        } else if col.r > 0.45 && col.g > 0.30 && col.b < 0.25 {
+            &self.assets.btn_menu_orange
+        } else if col.r > 0.45 && col.b > 0.55 {
+            &self.assets.btn_menu_purple
+        } else if col.r > col.b * 1.15 && col.g < 0.35 {
+            &self.assets.btn_menu_red
+        } else {
+            &self.assets.btn_menu_gray
+        }
+    }
+
     fn button(&self, label: &str, x: f32, y: f32, w: f32, h: f32, col: Color) -> bool {
         let (mx, my) = to_virtual(mouse_position().0, mouse_position().1);
         let hover = mx >= x && mx <= x + w && my >= y && my <= y + h;
-        rrect(x, y + 5.0, w, h, 16.0, with_a(BLACK, 0.35));
-        rrect(x, y, w, h, 16.0, if hover { mix(col, WHITE, 0.15) } else { col });
-        rrect(x + 4.0, y + 4.0, w - 8.0, h * 0.42, 12.0, with_a(WHITE, 0.12));
-        text_o(label, x + w * 0.5, y + h * 0.5 + h * 0.17, h * 0.42, WHITE);
+        let tex = self.menu_btn_tex(col);
+        let tint = if hover { Color::new(1.0, 1.0, 1.0, 1.0) } else { Color::new(0.93, 0.93, 0.95, 1.0) };
+        rrect(x + 3.0, y + 6.0, w - 6.0, h - 2.0, 16.0, with_a(BLACK, 0.38));
+        draw_9slice(tex, x, y, w, h, tint);
+        text_o(label, x + w * 0.5, y + h * 0.5 + h * 0.16, h * 0.41, WHITE);
         if let Some((cx, cy)) = self.clicked() {
             return cx >= x && cx <= x + w && cy >= y && cy <= y + h;
         }
@@ -920,13 +1048,25 @@ impl App {
         let bob1 = (t * 2.8).sin() * 6.0;
         let bob2 = (t * 2.8 + 1.6).sin() * 6.0;
         // Player 1 showcase (left)
-        ellipse(190.0, 520.0, 58.0, 14.0, with_a(BLACK, 0.35));
-        tex_center(&self.assets.p1_boot, 198.0, 496.0 + bob1 * 0.3, 96.0, 64.0, WHITE, false, -0.05);
-        tex_center(&self.assets.p1_head, 190.0, 412.0 + bob1, 168.0, 168.0, WHITE, false, (t * 1.4).sin() * 0.04);
+        let c0 = self.char_idx[0] % 6;
+        let c1 = self.char_idx[1] % 6;
+        ellipse(190.0, 512.0, 58.0, 14.0, with_a(BLACK, 0.35));
+        tex_center(&self.assets.boots[c0], 198.0, 488.0 + bob1 * 0.3, 96.0, 64.0, WHITE, false, -0.05);
+        tex_center(&self.assets.heads[c0], 190.0, 404.0 + bob1, 168.0, 168.0, WHITE, false, (t * 1.4).sin() * 0.04);
+        if self.button(&format!("Jogador: #{}", c0 + 1), 85.0, 536.0, 210.0, 44.0, hex(0x2d6fd0)) {
+            self.char_idx[0] = (self.char_idx[0] + 1) % 6;
+            if self.char_idx[1] == self.char_idx[0] {
+                self.char_idx[1] = (self.char_idx[0] + 1) % 6;
+            }
+        }
         // Player 2 showcase (right)
-        ellipse(1090.0, 520.0, 58.0, 14.0, with_a(BLACK, 0.35));
-        tex_center(&self.assets.p2_boot, 1082.0, 496.0 + bob2 * 0.3, 96.0, 64.0, WHITE, true, 0.05);
-        tex_center(&self.assets.p2_head, 1090.0, 412.0 + bob2, 168.0, 168.0, WHITE, true, -(t * 1.4).sin() * 0.04);
+        ellipse(1090.0, 512.0, 58.0, 14.0, with_a(BLACK, 0.35));
+        tex_center(&self.assets.boots[c1], 1082.0, 488.0 + bob2 * 0.3, 96.0, 64.0, WHITE, true, 0.05);
+        tex_center(&self.assets.heads[c1], 1090.0, 404.0 + bob2, 168.0, 168.0, WHITE, true, -(t * 1.4).sin() * 0.04);
+        let stad_names = ["Noite", "Pôr do Sol", "Final"];
+        if self.button(&format!("Estádio: {}", stad_names[self.stadium_idx % 3]), 985.0, 536.0, 210.0, 44.0, hex(0x34405e)) {
+            self.stadium_idx = (self.stadium_idx + 1) % 3;
+        }
 
         tex_center(&self.assets.logo, 640.0, 130.0 + (t * 2.2).sin() * 4.0, 470.0, 235.0, WHITE, false, 0.0);
         rrect(290.0, 236.0, 700.0, 34.0, 17.0, with_a(BLACK, 0.5));
@@ -1256,21 +1396,31 @@ impl App {
         }
     }
 
-    /// The cup is won: the winner on the podium with confetti.
+    /// The cup is won: the winner on the podium with trophy and confetti.
     fn champion_screen(&mut self) {
         tex_draw(&self.assets.menu_bg, 0.0, 0.0, W, H, WHITE, false, 0.0);
-        rectv(0.0, 0.0, W, H, with_a(hex(0x080d1e), 0.15));
+        rectv(0.0, 0.0, W, H, with_a(hex(0x080d1e), 0.18));
         let t = self.now as f32;
-        ellipse(640.0, 546.0, 90.0, 18.0, with_a(BLACK, 0.3));
-        tex_center(&self.assets.p1_head, 640.0, 470.0 + (t * 3.0).sin() * 5.0, 200.0, 200.0, WHITE, false, (t * 1.6).sin() * 0.05);
-        text_o("CAMPEÃO!", 640.0, 150.0, 96.0, hex(0xffd34d));
-        text_o("Você venceu o campeonato!", 640.0, 205.0, 34.0, WHITE);
+        let c0 = self.char_idx[0] % 6;
+        // 3-stage cup bracket ribbon
+        rrect(310.0, 224.0, 660.0, 44.0, 22.0, with_a(BLACK, 0.55));
+        text_o("Quartas  OK        Semifinal  OK        Final  OK", 640.0, 254.0, 22.0, hex(0xffe14a));
+        // Winner + Trophy on podium
+        ellipse(590.0, 548.0, 82.0, 16.0, with_a(BLACK, 0.32));
+        ellipse(740.0, 548.0, 60.0, 14.0, with_a(BLACK, 0.30));
+        tex_center(&self.assets.boots[c0], 596.0, 526.0, 96.0, 64.0, WHITE, false, -0.04);
+        tex_center(&self.assets.heads[c0], 590.0, 438.0 + (t * 3.0).sin() * 5.0, 186.0, 186.0, WHITE, false, (t * 1.6).sin() * 0.05);
+        tex_center(&self.assets.trophy, 742.0, 458.0 + (t * 2.4 + 1.0).sin() * 4.0, 175.0, 175.0, WHITE, false, (t * 1.2).sin() * 0.04);
+        text_o("CAMPEÃO!", 640.0, 142.0, 96.0, hex(0xffd34d));
+        text_o("Você venceu o campeonato!", 640.0, 198.0, 32.0, WHITE);
         if rand::gen_range(0.0, 1.0) < 0.35 {
             let c = [hex(0xffd34d), hex(0xff5a5a), hex(0x5ad1ff), WHITE, hex(0x7dff7d)][rand::gen_range(0, 5) as usize];
             self.burst(rand::gen_range(100.0, 1180.0), 60.0, 5, c);
         }
-        for p in &self.particles {
-            circ(p.x, p.y, p.r, with_a(p.c, 1.0 - p.life / p.max));
+        for (idx, p) in self.particles.iter().enumerate() {
+            let piece = (idx % 4) as f32;
+            let a = (1.0 - p.life / p.max).clamp(0.0, 1.0);
+            tex_sub(&self.assets.confetti, piece * 32.0, 0.0, 32.0, 32.0, p.x - 10.0, p.y - 10.0, 20.0, 20.0, Color::new(1.0, 1.0, 1.0, a), false, p.life * 7.0 + piece);
         }
         if self.button("Jogar de novo", 300.0, 600.0, 320.0, 64.0, hex(0x2f8f4e)) {
             self.tour = Some(Tour { round: 0 });
@@ -1285,7 +1435,8 @@ impl App {
     // ------------------------------------------------------------ match drawing
 
     fn draw_field(&self, live: bool) {
-        tex_draw(&self.assets.stadium_bg, 0.0, 0.0, W, H, WHITE, false, 0.0);
+        let bg = &self.assets.stadium_bgs[self.stadium_idx % self.assets.stadium_bgs.len()];
+        tex_draw(bg, 0.0, 0.0, W, H, WHITE, false, 0.0);
         if live && (self.sim.phase == Phase::Goal || self.sim.phase == Phase::Over) {
             let t = self.now as f32;
             let pulse = 0.05 + 0.07 * (t * 10.0).sin().abs();
@@ -1305,11 +1456,9 @@ impl App {
         let p = self.sim.p[i];
         let s = p.side;
         let flip = s < 0.0;
-        let (head_tex, boot_tex) = if i == 0 {
-            (&self.assets.p1_head, &self.assets.p1_boot)
-        } else {
-            (&self.assets.p2_head, &self.assets.p2_boot)
-        };
+        let cid = self.char_idx[i] % 6;
+        let head_tex = &self.assets.heads[cid];
+        let boot_tex = &self.assets.boots[cid];
         let x = p.x;
         let y = p.y;
         // ground shadow
@@ -1367,10 +1516,7 @@ impl App {
         let head_tint = if frozen { Color::new(0.62, 0.86, 1.0, 1.0) } else { head_tint };
         tex_center(head_tex, x, y - 2.0 + bob, 112.0, 112.0, head_tint, flip, head_rot);
         if frozen {
-            // an ice block around the player
-            rrect(x - 62.0, y - 62.0, 124.0, FEET + 66.0, 14.0, with_a(hex(0xbff0ff), 0.38));
-            rect_line(x - 60.0, y - 60.0, 120.0, FEET + 62.0, 3.0, with_a(WHITE, 0.7));
-            linev(x - 40.0, y - 50.0, x - 10.0, y - 20.0, 3.0, with_a(WHITE, 0.6));
+            tex_center(&self.assets.ice_block, x, y + 6.0, 136.0, 170.0, WHITE, false, 0.0);
         }
         // orbiting dizzy stars when stunned
         if p.stun > 0.0 && !frozen {
@@ -1428,17 +1574,17 @@ impl App {
             circ(b.x, b.y, r + 12.0, with_a(hex(0xff6a00), 0.40 * alpha));
             let d = r * 3.15;
             tex_center(&self.assets.ball_fire, b.x, b.y, d, d, Color::new(1.0, 1.0, 1.0, alpha), false, b.angle * 0.45);
+        } else if b.ice > 0.0 {
+            circ(b.x, b.y, r + 9.0, with_a(hex(0x9fe6ff), 0.45 * alpha));
+            let d = r * 2.45;
+            tex_center(&self.assets.ball_ice, b.x, b.y, d, d, Color::new(1.0, 1.0, 1.0, alpha), false, b.angle);
+        } else if b.bomb > 0.0 {
+            let d = r * 2.55;
+            let blink = if (b.bomb * if b.bomb < 0.8 { 12.0 } else { 5.0 }).fract() < 0.5 { 1.0 } else { 0.72 };
+            tex_center(&self.assets.ball_bomb, b.x, b.y - 3.0, d, d, Color::new(1.0, blink, blink, alpha), false, b.angle * 0.25);
         } else {
-            if b.ice > 0.0 {
-                circ(b.x, b.y, r + 8.0, with_a(hex(0x9fe6ff), 0.45 * alpha));
-            }
             let d = r * 2.15;
             tex_center(&self.assets.ball, b.x, b.y, d, d, tint, false, b.angle);
-            if b.bomb > 0.0 && alpha > 0.0 {
-                // fuse
-                linev(b.x, b.y - r, b.x + 8.0, b.y - r - 14.0, 3.0, hex(0x6b4a2a));
-                circ(b.x + 8.0, b.y - r - 15.0, 4.0, hex(0xffd34d));
-            }
         }
     }
 
@@ -1461,6 +1607,23 @@ impl App {
                 circ(p.x, p.y, p.r, with_a(p.c, 1.0 - p.life / p.max));
             }
         }
+        for f in &self.fx {
+            let k = (f.life / f.max).clamp(0.0, 0.999);
+            match f.kind {
+                FxKind::Dust => {
+                    let frame = (k * 6.0) as usize;
+                    tex_sub(&self.assets.fx_dust, frame as f32 * 128.0, 0.0, 128.0, 128.0, f.x - f.size * 0.5, f.y - f.size * 0.5, f.size, f.size, WHITE, f.flip_x, 0.0);
+                }
+                FxKind::Kick => {
+                    let frame = (k * 6.0) as usize;
+                    tex_sub(&self.assets.fx_kick, frame as f32 * 128.0, 0.0, 128.0, 128.0, f.x - f.size * 0.5, f.y - f.size * 0.5, f.size, f.size, WHITE, f.flip_x, 0.0);
+                }
+                FxKind::Boom => {
+                    let frame = (k * 8.0) as usize;
+                    tex_center(&self.assets.boom[frame.min(7)], f.x, f.y, f.size, f.size, WHITE, false, 0.0);
+                }
+            }
+        }
         VIEW.with(|v| v.set((s, ox, oy)));
         self.draw_hud();
         self.draw_touch_buttons();
@@ -1474,15 +1637,15 @@ impl App {
         let sb_w = 380.0;
         let sb_h = 104.0;
         tex_draw(&self.assets.scoreboard, sb_x, sb_y, sb_w, sb_h, WHITE, false, 0.0);
-        text_o(&sim.score[0].to_string(), sb_x + sb_w * 0.241, 74.0, 50.0, hex(0x9be2ff));
-        text_o(&sim.score[1].to_string(), sb_x + sb_w * 0.759, 74.0, 50.0, hex(0xffa49b));
+        text_o(&sim.score[0].to_string(), sb_x + sb_w * 0.194, 72.0, 48.0, hex(0x9be2ff));
+        text_o(&sim.score[1].to_string(), sb_x + sb_w * 0.806, 72.0, 48.0, hex(0xffa49b));
         let tl = sim.time_left.max(0.0).ceil() as i32;
         let tcol = if tl <= 10 && sim.phase == Phase::Play { hex(0xff6a5a) } else { hex(0xffe14a) };
         if sim.overtime {
             let pulse = 0.5 + 0.5 * (self.now as f32 * 6.0).sin().abs();
-            text_o("OURO", 640.0, 66.0, 20.0, mix(WHITE, hex(0xffd34d), pulse));
+            text_o("OURO", 640.0, 68.0, 30.0, mix(WHITE, hex(0xffd34d), pulse));
         } else {
-            text_o(&format!("{}:{:02}", tl / 60, tl % 60), 640.0, 68.0, 26.0, tcol);
+            text_o(&format!("{}:{:02}", tl / 60, tl % 60), 640.0, 70.0, 36.0, tcol);
         }
         self.hud.score = true;
         self.hud.timer = true;
@@ -1529,8 +1692,8 @@ impl App {
                 if sim.score == [0, 0] {
                     rrect(250.0, 196.0, 780.0, 164.0, 24.0, with_a(BLACK, 0.5));
                     let bob = (self.now as f32 * 4.0).sin() * 3.0;
-                    tex_center(&self.assets.p1_head, 400.0, 266.0 + bob, 124.0, 124.0, WHITE, false, 0.0);
-                    tex_center(&self.assets.p2_head, 880.0, 266.0 - bob, 124.0, 124.0, WHITE, true, 0.0);
+                    tex_center(&self.assets.heads[self.char_idx[0] % 6], 400.0, 266.0 + bob, 124.0, 124.0, WHITE, false, 0.0);
+                    tex_center(&self.assets.heads[self.char_idx[1] % 6], 880.0, 266.0 - bob, 124.0, 124.0, WHITE, true, 0.0);
                     text_o("VS", 640.0, 288.0, 84.0, hex(0xffd34d));
                     if let Some(t) = self.tour {
                         text_o(TOUR_ROUNDS[t.round.min(2)].0, 640.0, 330.0, 24.0, WHITE);
@@ -1606,7 +1769,7 @@ impl App {
                 Btn::Kick => (&self.assets.btn_kick, b.who == 1),
                 Btn::Lob => (&self.assets.btn_lob, b.who == 1),
                 Btn::Jump => (&self.assets.btn_jump, b.who == 1),
-                Btn::Power => (&self.assets.btn_power, false),
+                Btn::Power => (&self.assets.btn_powers[(p.pkind as usize) % 6], false),
             };
             let pulse = if b.kind == Btn::Power && ready {
                 1.0 + 0.06 * (t * 8.0).sin()

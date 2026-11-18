@@ -1,0 +1,59 @@
+name: Android emulator test
+
+# Installs the APK from an "Android APK" run on an Android emulator, opens the game,
+# taps a menu button and keeps screenshots and the log (artifact "android-smoke-apiNN").
+# Runs by itself after every successful "Android APK" run, or by hand with a run id.
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Id of the 'Android APK' run whose APK should be tested"
+        required: true
+  workflow_run:
+    workflows: ["Android APK"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  emulator:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [30, 34]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: cabecada-apk
+          path: apk
+          run-id: ${{ github.event.inputs.run_id || github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run the game on the emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-boot-anim -camera-back none -no-snapshot
+          script: bash .github/android-smoke.sh
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-smoke-api${{ matrix.api }}
+          path: smoke

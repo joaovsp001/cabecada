@@ -1,6 +1,11 @@
 // Extra Java code for the Android build. cargo-quad-apk copies each block below into
 // the matching "//% NAME" spot of miniquad's MainActivity.java (see quad.toml).
 // Blocks end with "//% END". Keep everything inside the blocks.
+// The cargo-quad-apk in the build image (2024) only knows these blocks: IMPORTS,
+// MAIN_ACTIVITY_BODY, MAIN_ACTIVITY_ON_CREATE, MAIN_ACTIVITY_ON_RESUME,
+// MAIN_ACTIVITY_ON_PAUSE and MAIN_ACTIVITY_ON_ACTIVITY_RESULT; any other one stops the build.
+// (With the system bars hidden, miniquad's ResizingLayout gets zero insets, so the game
+// already fills the whole screen.)
 
 //% IMPORTS
 import android.view.WindowInsetsController;
@@ -42,14 +47,6 @@ import android.net.wifi.WifiManager;
             cabecadaHideSystemBars();
         }
     }
-//% END
-
-//% RESIZING_LAYOUT_ON_APPLY_WINDOW_INSETS
-        // The game draws under the (hidden) system bars, so no padding is needed.
-        if (true) {
-            v.setPadding(0, 0, 0, 0);
-            return insets;
-        }
 //% END
 
 //% MAIN_ACTIVITY_ON_CREATE

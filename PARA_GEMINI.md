@@ -104,3 +104,12 @@ Estas são ideias tiradas das strings do jogo original (veja `MECHANICS.md`). Or
 - A física roda em passo fixo de 1/120 s e o desenho em tempo real; o mesmo código roda no host e no cliente da rede (o cliente só desenha o estado recebido).
 - Ao mexer em `game.rs`, rode o `--self-test` de novo.
 - Imagens grandes pesam no APK: `menu_bg.png` e `stadium_bg.png` já têm cerca de 1,2 MB cada.
+
+### Android (não quebre isto)
+- O APK é feito na nuvem: aba **Actions** do GitHub, **Android APK**. Depois dele roda o **Android emulator test**, que instala o jogo em emuladores de Android 11 e 14, abre, joga um pouco, testa os botões voltar e home e guarda fotos e o log (artefatos `android-smoke-api30` e `android-smoke-api34`). Confira essas fotos depois de mudar o jogo.
+- No `Cargo.toml`, o `package_name` do Android **tem que terminar em `.cabecada`** (o nome do crate). A ferramenta usa a última parte desse nome para achar a biblioteca do jogo; com outro final o app fecha assim que abre.
+- Não ponha a chave `orientation` no `Cargo.toml` (a ferramenta recusa); a tela deitada vem de `activity_attributes`, que também tem o `android:exported` exigido pelo Android 12+.
+- O ícone do app fica em `android/res` (feito a partir de `assets/icon_512.png` e `assets/icon_adaptive_fg.png`). Se mudar o ícone, gere de novo todos os tamanhos (`mipmap-mdpi` a `mipmap-xxxhdpi`).
+- `quad.toml` e `android/MainActivityInject.java` acrescentam código Java ao app (tela cheia e busca de partidas no Wi-Fi). Cada bloco começa com `//% NOME` e termina com `//% END`.
+- No celular o botão voltar pausa a partida, sai das salas de rede e, no menu, pergunta antes de fechar o jogo (`src/platform.rs` fecha o app). A partida pausa sozinha quando o app vai para segundo plano.
+- Cada APK feito na nuvem tem uma assinatura nova; para instalar um APK novo por cima do antigo é preciso desinstalar o antigo antes.

@@ -7,6 +7,7 @@ mod assets;
 mod audio;
 mod game;
 mod net;
+mod platform;
 mod selftest;
 mod win;
 
@@ -122,6 +123,27 @@ pub fn tex_sub(tex: &Texture2D, sx: f32, sy: f32, sw: f32, sh: f32, x: f32, y: f
         },
     );
 }
+/// Phones are wider than 16:9 (and tablets taller), so the 1280x720 picture leaves bars
+/// at the sides (or top and bottom). Fill them with the edges of the current background,
+/// stretched and a little darker, so the scene seems to go on.
+pub fn draw_side_fill(tex: &Texture2D) {
+    let (s, ox, oy) = view();
+    let (tw, th) = (tex.width(), tex.height());
+    let strip = 24.0;
+    let tint = Color::new(0.7, 0.7, 0.76, 1.0);
+    let draw = |src: Rect, x: f32, y: f32, w: f32, h: f32| {
+        draw_texture_ex(tex, x, y, tint, DrawTextureParams { dest_size: Some(vec2(w, h)), source: Some(src), ..Default::default() });
+    };
+    if ox > 0.5 {
+        draw(Rect::new(0.0, 0.0, strip, th), 0.0, oy, ox + 1.0, H * s);
+        draw(Rect::new(tw - strip, 0.0, strip, th), ox + W * s - 1.0, oy, ox + 1.0, H * s);
+    }
+    if oy > 0.5 {
+        draw(Rect::new(0.0, 0.0, tw, strip), ox, 0.0, W * s, oy + 1.0);
+        draw(Rect::new(0.0, th - strip, tw, strip), ox, oy + H * s - 1.0, W * s, oy + 1.0);
+    }
+}
+
 pub fn draw_9slice(tex: &Texture2D, x: f32, y: f32, w: f32, h: f32, col: Color) {
     let tw = tex.width();
     let th = tex.height();
@@ -440,6 +462,8 @@ pub struct App {
     fx: Vec<AnimFx>,
     char_idx: [usize; 2],
     stadium_idx: usize,
+    quit_ask: bool,     // the "leave the game?" box is open
+    events_sub: usize,  // macroquad input subscriber, to hear when the app goes to the background
 }
 
 /// A knock-out cup against the computer: three rounds, each harder than the last.
@@ -489,6 +513,27 @@ impl App {
             fx: vec![],
             char_idx: [0, 1],
             stadium_idx: 0,
+            quit_ask: false,
+            events_sub: macroquad::input::utils::register_input_subscriber(),
+        }
+    }
+
+    /// The cup was just won: the champion screen is showing.
+    fn champion_showing(&self) -> bool {
+        self.screen == Screen::Match
+            && self.mode == Mode::Cpu
+            && self.sim.phase == Phase::Over
+            && self.over_t > 1.2
+            && matches!(self.tour, Some(t) if t.round + 1 >= TOUR_ROUNDS.len())
+            && self.sim.winner() == Some(0)
+    }
+
+    /// The picture behind the current screen (also used to fill the sides of wide phones).
+    fn backdrop_tex(&self) -> &Texture2D {
+        if self.screen == Screen::Match && !self.champion_showing() {
+            &self.assets.stadium_bgs[self.stadium_idx % self.assets.stadium_bgs.len()]
+        } else {
+            &self.assets.menu_bg
         }
     }
 
@@ -976,8 +1021,15 @@ impl App {
 
     async fn frame(&mut self, dt: f32) {
         self.now += dt as f64;
+        // the app went to the background (home button, a call...): pause a running match
+        let mut life = platform::LifeEvents::default();
+        macroquad::input::utils::repeat_all_miniquad_input(&mut life, self.events_sub);
+        if life.went_away && self.screen == Screen::Match && matches!(self.mode, Mode::Cpu | Mode::Local2) && self.sim.phase != Phase::Over {
+            self.paused = true;
+        }
         set_view();
         clear_background(hex(0x0b1022));
+        draw_side_fill(self.backdrop_tex());
         self.crowd(self.screen == Screen::Match);
         match self.screen {
             Screen::Menu => self.menu(),
@@ -1040,9 +1092,33 @@ impl App {
         rectv(0.0, 0.0, W, H, with_a(hex(0x0a0f24), 0.42));
     }
 
+    /// Main menu. The phone's back button (or Esc) opens a "leave the game?" box.
     fn menu(&mut self) {
+        let back = is_key_pressed(KeyCode::Back) || is_key_pressed(KeyCode::Escape);
+        if !self.quit_ask {
+            self.menu_main();
+            if back && self.screen == Screen::Menu {
+                self.quit_ask = true;
+            }
+            return;
+        }
+        self.draw_backdrop();
+        tex_center(&self.assets.logo, 640.0, 150.0, 400.0, 200.0, WHITE, false, 0.0);
+        rrect(390.0, 272.0, 500.0, 220.0, 24.0, with_a(BLACK, 0.6));
+        text_o("Sair do jogo?", 640.0, 338.0, 46.0, WHITE);
+        if self.button("Sair", 420.0, 392.0, 210.0, 72.0, hex(0x5a2d3a)) {
+            platform::quit();
+        }
+        if self.button("Continuar", 650.0, 392.0, 210.0, 72.0, hex(0x2f8f4e)) || back {
+            self.quit_ask = false;
+        }
+    }
+
+    fn menu_main(&mut self) {
         tex_draw(&self.assets.menu_bg, 0.0, 0.0, W, H, WHITE, false, 0.0);
         rectv(0.0, 0.0, W, H, with_a(hex(0x080d1e), 0.22));
+        let version = concat!("v", env!("CARGO_PKG_VERSION"));
+        text(version, 1272.0 - text_w(version, 16.0), 712.0, 16.0, with_a(WHITE, 0.55));
         // title logo and showcase characters
         let t = self.now as f32;
         let bob1 = (t * 2.8).sin() * 6.0;
@@ -1135,6 +1211,10 @@ impl App {
     }
 
     fn host_lobby(&mut self) {
+        if is_key_pressed(KeyCode::Back) || is_key_pressed(KeyCode::Escape) {
+            self.to_menu();
+            return;
+        }
         self.draw_backdrop();
         let now = self.now;
         let joined = self.host.as_mut().map(|h| h.poll(now)).unwrap_or(false);
@@ -1163,6 +1243,10 @@ impl App {
     }
 
     fn join_lobby(&mut self) {
+        if is_key_pressed(KeyCode::Back) || is_key_pressed(KeyCode::Escape) {
+            self.to_menu();
+            return;
+        }
         self.draw_backdrop();
         let now = self.now;
         if let Some(c) = self.client.as_mut() {
@@ -1282,7 +1366,15 @@ impl App {
         circ_line(640.0, 126.0, 18.0, 2.0, with_a(WHITE, 0.55));
         rectv(633.0, 117.0, 4.5, 18.0, WHITE);
         rectv(642.5, 117.0, 4.5, 18.0, WHITE);
-        if (pause_hit || is_key_pressed(KeyCode::Escape) || is_key_pressed(KeyCode::P)) && !self.paused {
+        // the phone's back button: pause (or leave a finished or broken match)
+        let back = is_key_pressed(KeyCode::Back);
+        let over_box = sim.phase == Phase::Over && self.over_t > 1.2;
+        if back && (self.lost || over_box) {
+            self.tour = None;
+            self.to_menu();
+            return;
+        }
+        if (pause_hit || back || is_key_pressed(KeyCode::Escape) || is_key_pressed(KeyCode::P)) && !self.paused && !self.lost && !over_box {
             self.paused = true;
             return;
         }
@@ -1315,7 +1407,7 @@ impl App {
             if matches!(self.mode, Mode::Host | Mode::Client) {
                 text_o("(a partida em rede continua rodando)", 640.0, 290.0, 24.0, hex(0xb8c6e6));
             }
-            if self.button("Continuar", 490.0, 330.0, 300.0, 64.0, hex(0x2f8f4e)) || is_key_pressed(KeyCode::Escape) {
+            if self.button("Continuar", 490.0, 330.0, 300.0, 64.0, hex(0x2f8f4e)) || is_key_pressed(KeyCode::Escape) || back {
                 self.paused = false;
             }
             if self.button("Sair para o menu", 490.0, 415.0, 300.0, 64.0, hex(0x5a2d3a)) {
@@ -1804,12 +1896,14 @@ fn star(x: f32, y: f32, r: f32, c: Color) {
 
 fn conf() -> Conf {
     Conf {
-        window_title: "Cabecada".to_owned(),
+        window_title: "Cabeçada".to_owned(),
         window_width: 1280,
         window_height: 720,
         high_dpi: cfg!(target_os = "android"),
         window_resizable: true,
-        sample_count: 4,
+        // miniquad's Android code stops the app if the phone has no graphics mode with
+        // this many samples, so phones ask for none (their screens are sharp anyway)
+        sample_count: if cfg!(target_os = "android") { 1 } else { 4 },
         ..Default::default()
     }
 }
@@ -1840,11 +1934,15 @@ fn parse_args() -> Run {
 }
 
 async fn amain(run: Run, prev_fg: isize) {
+    platform::log(concat!("Cabecada ", env!("CARGO_PKG_VERSION"), ": starting"));
     let quiet = !matches!(run, Run::Normal);
     let sounds = if quiet { None } else { audio::Sounds::load().await };
+    platform::log(if sounds.is_some() { "sounds ready" } else { "no sound" });
     load_game_font();
     let assets = assets::Assets::load();
+    platform::log("pictures loaded");
     let mut app = App::new(sounds, assets);
+    platform::log("menu");
     match run {
         Run::Normal => loop {
             let dt = get_frame_time();

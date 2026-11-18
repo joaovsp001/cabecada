@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['src/**', 'assets/**', 'Cargo.toml', 'Cargo.lock', '.github/workflows/android.yml']
+    paths: ['src/**', 'assets/**', 'android/**', 'quad.toml', 'Cargo.toml', 'Cargo.lock', '.github/workflows/android.yml']
 
 jobs:
   apk:

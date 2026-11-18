@@ -1,6 +1,6 @@
 [package]
 name = "cabecada"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 
 [dependencies]
@@ -17,9 +17,20 @@ opt-level = 3
 
 # Android build (cargo-quad-apk). Needs the INTERNET permission for local-network play.
 [package.metadata.android]
-package_name = "local.cabecada.futebol"
-label = "Cabecada"
+# cargo-quad-apk loads the game library named after the LAST part of package_name
+# (System.loadLibrary), so it must end in ".cabecada", the crate name. With
+# "local.cabecada.futebol" the app looked for libfutebol.so and closed at once.
+package_name = "local.futebol.cabecada"
+label = "Cabeçada"
+version_code = 2
+version_name = "1.0.0"
+target_sdk_version = 35
+min_sdk_version = 21
+# x86_64 is for the emulator test (and Chromebooks); phones use the two ARM ones.
+build_targets = ["armv7-linux-androideabi", "aarch64-linux-android", "x86_64-linux-android"]
 fullscreen = true
+icon = "@mipmap/ic_launcher"
+res = "android/res"
 
 [package.metadata.android.activity_attributes]
 "android:screenOrientation" = "userLandscape"

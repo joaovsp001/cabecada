@@ -1,0 +1,3 @@
+# Read by cargo-quad-apk when it builds the Android APK: extra Java code that goes
+# into miniquad's MainActivity (see android/MainActivityInject.java).
+main_activity_inject = "android/MainActivityInject.java"

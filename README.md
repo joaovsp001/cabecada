@@ -20,7 +20,14 @@ Keyboard: A/D or arrows to move, W / Up / Space to jump, F / J / K to kick, G / 
 ## Building
 - Windows: `cargo build --release`.
 - Android, in the cloud (easiest): on GitHub open the **Actions** tab, pick **Android APK**, click **Run workflow**, and when it ends (about 5 minutes) download `cabecada-apk` from the run's **Artifacts**. Install the `.apk` on the phone (allow "install unknown apps"). The workflow is `.github/workflows/android.yml`; it uses the `notfl3/cargo-apk` image with the latest stable Rust and a version 3 `Cargo.lock` (the cargo inside cargo-quad-apk does not read version 4).
-- Android, on your own computer: with cargo-quad-apk (`cargo quad-apk build --release`), the Android SDK and NDK r25; the Android settings and network permission are in Cargo.toml (do not add an `orientation` key there: cargo-quad-apk rejects it, landscape comes from `activity_attributes`).
+- After each APK build, **Android emulator test** (`.github/workflows/android-test.yml` and `.github/android-smoke.sh`) installs it on Android 11 and Android 14 emulators, opens the game, starts a match, tries the back and home buttons and keeps screenshots and the log in the run's artifacts (`android-smoke-api30`, `android-smoke-api34`).
+- Android, on your own computer: with cargo-quad-apk (`cargo quad-apk build --release`), the Android SDK and NDK r25.
+- Android settings live in `Cargo.toml` (`[package.metadata.android]`). Things that matter:
+  - `package_name` must end in `.cabecada` (the crate name): cargo-quad-apk loads the library named after its last part. With another ending the app closes as soon as it opens.
+  - No `orientation` key (cargo-quad-apk rejects it); landscape comes from `activity_attributes`, which also sets `android:exported` (required by Android 12+).
+  - The launcher icon is in `android/res` (made from `assets/icon_512.png` and `assets/icon_adaptive_fg.png`).
+  - `quad.toml` adds the Java code in `android/MainActivityInject.java` to the app: real full screen (system bars hidden) and a Wi-Fi multicast lock so phones find matches on the local network.
+- On the phone the back button pauses a match, leaves the lobbies and, on the menu, asks before closing the game; a match pauses by itself when the app goes to the background.
 
 Options for checks: `--self-test file.json` (the game plays itself and checks each part), `--shots folder` (a picture of every screen and power), `--screenshot file.png` (one match picture).
 

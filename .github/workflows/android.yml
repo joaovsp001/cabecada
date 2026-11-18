@@ -32,7 +32,7 @@ jobs:
           '
 
       - name: Show the result
-        run: find target/android-artifacts -name '*.apk' -exec ls -l {} \;
+        run: ls -l target/android-artifacts/release/apk/
 
       - uses: actions/upload-artifact@v4
         with:

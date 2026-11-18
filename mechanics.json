@@ -28,6 +28,8 @@
   {"name": "match length", "group": "match", "value": 90, "unit": "s", "estimated": true},
   {"name": "countdown", "group": "match", "value": 3, "unit": "s", "estimated": true},
   {"name": "goal pause", "group": "match", "value": 2.2, "unit": "s", "estimated": true},
+  {"name": "overtime rule", "group": "match", "value": "tie at the whistle: golden goal, the next goal wins", "source": "this game's own rule, not read from the original"},
+  {"name": "cup rounds", "group": "match", "value": "Quartas (easy), Semifinal (normal), Final (hard)", "source": "this game's own design"},
   {"name": "cpu reaction normal", "group": "ai", "value": 0.14, "unit": "s", "estimated": true},
   {"name": "lan port", "group": "network", "value": 47777, "source": "design: no server, one player's device hosts"}
 ]}

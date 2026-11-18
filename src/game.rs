@@ -62,7 +62,7 @@ pub const PK_INVIS: u8 = 3; // the ball disappears for the opponent
 pub const PK_BOMB: u8 = 4; // next kick: the ball becomes a bomb that blows the opponent away
 pub const PK_CLONE: u8 = 5; // next kick: two fake balls fly off beside the real one
 pub const POWER_KINDS: u8 = 6;
-pub const POWER_NAMES: [&str; 6] = ["Fogo", "Bola gigante", "Gelo", "Invisivel", "Bomba", "Clones"];
+pub const POWER_NAMES: [&str; 6] = ["Fogo", "Bola gigante", "Gelo", "Invisível", "Bomba", "Clones"];
 
 pub const BIG_TIME: f32 = 7.0;
 pub const BIG_SCALE: f32 = 1.9;
@@ -269,6 +269,7 @@ pub struct Sim {
     pub last_scorer: u8,
     pub events: u32,
     pub touches: [u32; 2],
+    pub overtime: bool, // tied at the whistle: the next goal wins (golden goal)
     prev: [Input; 2],
     rng: u32,
 }
@@ -290,11 +291,29 @@ impl Sim {
             last_scorer: 0,
             events: 0,
             touches: [0, 0],
+            overtime: false,
             prev: [Input::default(); 2],
             rng: 0x9e3779b9,
         };
         s.reset_ball();
         s
+    }
+
+    /// The clock ran out (or a goal was scored after it did): a tie goes to golden-goal
+    /// overtime, anything else ends the match.
+    fn end_of_time(&mut self) {
+        if self.score[0] == self.score[1] && !self.overtime {
+            self.overtime = true;
+            for p in self.p.iter_mut() {
+                p.reset();
+            }
+            self.reset_ball();
+            self.phase = Phase::Ready;
+            self.phase_t = KICKOFF_READY * 2.0;
+        } else {
+            self.phase = Phase::Over;
+        }
+        self.events |= EV_WHISTLE;
     }
 
     fn rand(&mut self) -> f32 {
@@ -341,14 +360,15 @@ impl Sim {
                 }
             }
             Phase::Play => {
-                self.time_left -= dt;
+                if !self.overtime {
+                    self.time_left -= dt;
+                }
                 self.step_players(dt, input, prev, true);
                 self.step_ball(dt);
                 self.check_goal();
-                if self.time_left <= 0.0 && self.phase == Phase::Play {
+                if !self.overtime && self.time_left <= 0.0 && self.phase == Phase::Play {
                     self.time_left = 0.0;
-                    self.phase = Phase::Over;
-                    self.events |= EV_WHISTLE;
+                    self.end_of_time();
                 }
             }
             Phase::Goal => {
@@ -356,9 +376,8 @@ impl Sim {
                 self.step_players(dt, [Input::default(); 2], prev, false);
                 self.step_ball(dt);
                 if self.phase_t <= 0.0 {
-                    if self.time_left <= 0.0 {
-                        self.phase = Phase::Over;
-                        self.events |= EV_WHISTLE;
+                    if self.overtime || self.time_left <= 0.0 {
+                        self.end_of_time();
                     } else {
                         for p in self.p.iter_mut() {
                             p.reset();
@@ -866,6 +885,7 @@ impl Sim {
                 f(out, v);
             }
         }
+        out.push(self.overtime as u8);
         out.extend_from_slice(&self.events.to_le_bytes());
     }
 
@@ -914,6 +934,7 @@ impl Sim {
                 *v = r.f()?;
             }
         }
+        s.overtime = r.u()? != 0;
         let e = r.take(4)?;
         s.events = u32::from_le_bytes([e[0], e[1], e[2], e[3]]);
         Some(s)

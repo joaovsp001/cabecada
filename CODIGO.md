@@ -15,6 +15,7 @@ Tudo esta em texto puro, na linguagem Rust. Da para abrir qualquer arquivo com o
 | `src/selftest.rs` | O teste automatico que joga sozinho e confere se tudo funciona |
 | `src/win.rs` | Um detalhe do Windows usado so nos testes automaticos |
 | `assets/` | As imagens (estadio, cabecas, chuteiras, bola, botoes) |
+| `PARA_GEMINI.md` | O que ainda falta fazer (imagens para refazer ou criar, e funcoes para completar o jogo) |
 | `Cargo.toml` | A "receita" do projeto: nome, bibliotecas usadas e configuracao para Android |
 | `build.rs` | Um ajuste para compilar neste computador |
 
@@ -23,3 +24,7 @@ Tudo esta em texto puro, na linguagem Rust. Da para abrir qualquer arquivo com o
 - Android: com o `cargo-quad-apk` instalado, rode `cargo quad-apk build --release`. O arquivo `.apk` fica em `target\android-artifacts\release\apk`.
 
 A pasta `target` e so o resultado da compilacao; ela pode ser apagada e e criada de novo ao compilar.
+
+## Como conferir depois de mudar algo
+- `target\release\cabecada.exe --self-test saida.json`: o jogo joga sozinho; todas as etapas do arquivo `saida.json` devem dar `"passed": true`.
+- `target\release\cabecada.exe --shots pasta`: salva uma foto de cada tela (menu, partida, gol, pausa, cada poder...) para voce ver como ficou.

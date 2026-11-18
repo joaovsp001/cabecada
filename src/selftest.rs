@@ -47,6 +47,7 @@ impl SelfTest {
         let f = self.f;
         match self.stage {
             0 => {
+                app.touch_ui = true; // the touch buttons are checked by the "hud" step
                 app.start_match(Mode::Local2);
                 app.sim.phase = Phase::Play;
                 self.x0 = app.sim.p[0].x;
@@ -189,6 +190,11 @@ impl SelfTest {
                     return false;
                 }
             }
+            8 => {
+                let (ok, detail) = overtime_test();
+                self.push("overtime", ok, detail);
+                return false;
+            }
             _ => return true,
         }
         app.update_match(DT, inp);
@@ -218,6 +224,60 @@ impl SelfTest {
         }
         let _ = std::fs::write(path, s);
     }
+}
+
+/// A tied match goes to golden-goal overtime (the next goal wins); a match that is not tied just ends.
+fn overtime_test() -> (bool, String) {
+    let dt = 1.0 / 120.0;
+    let none = [Input::default(); 2];
+    // not tied: ends at the whistle
+    let mut s = Sim::new(60.0);
+    s.phase = Phase::Play;
+    s.time_left = 0.01;
+    s.score = [2, 1];
+    for _ in 0..4 {
+        s.step(dt, none);
+    }
+    if s.phase != Phase::Over || s.overtime {
+        return (false, format!("2 x 1 at the whistle should end the match (phase {:?}, overtime {})", s.phase, s.overtime));
+    }
+    // tied: overtime starts
+    let mut s = Sim::new(60.0);
+    s.phase = Phase::Play;
+    s.time_left = 0.01;
+    s.score = [1, 1];
+    for _ in 0..4 {
+        s.step(dt, none);
+    }
+    if !s.overtime || s.phase != Phase::Ready {
+        return (false, format!("1 x 1 at the whistle should start overtime (phase {:?}, overtime {})", s.phase, s.overtime));
+    }
+    for _ in 0..400 {
+        if s.phase == Phase::Play {
+            break;
+        }
+        s.step(dt, none);
+    }
+    if s.phase != Phase::Play {
+        return (false, "overtime never started playing".into());
+    }
+    // the clock must not run in overtime
+    for _ in 0..120 {
+        s.step(dt, none);
+    }
+    if s.time_left != 0.0 || s.phase != Phase::Play {
+        return (false, format!("the clock should stay at zero in overtime (time {:.2}, phase {:?})", s.time_left, s.phase));
+    }
+    // a goal ends it
+    s.ball = Ball { x: W - 20.0, y: GROUND - 30.0, ..Default::default() };
+    for _ in 0..600 {
+        s.step(dt, none);
+        if s.phase == Phase::Over {
+            break;
+        }
+    }
+    let ok = s.phase == Phase::Over && s.winner() == Some(0) && s.score == [2, 1];
+    (ok, format!("1 x 1 went to golden goal; a goal made it {} x {} and ended the match (phase {:?})", s.score[0], s.score[1], s.phase))
 }
 
 /// Host and joiner on this computer (loopback): the joiner's button press

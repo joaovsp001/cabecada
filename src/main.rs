@@ -12,7 +12,7 @@ mod win;
 
 use game::*;
 use macroquad::prelude::*;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::net::{IpAddr, SocketAddr};
 
 pub const STEP: f32 = 1.0 / 120.0;
@@ -68,15 +68,27 @@ pub fn ellipse(x: f32, y: f32, w: f32, h: f32, c: Color) {
 pub fn tri(a: (f32, f32), b: (f32, f32), c: (f32, f32), col: Color) {
     draw_triangle(vec2(px(a.0), py(a.1)), vec2(px(b.0), py(b.1)), vec2(px(c.0), py(c.1)), col);
 }
+/// A quarter of a disc (a fan of triangles) starting at angle `a0`.
+fn quarter(cx: f32, cy: f32, r: f32, a0: f32, c: Color) {
+    let n = 8;
+    let step = std::f32::consts::FRAC_PI_2 / n as f32;
+    for i in 0..n {
+        let a = a0 + i as f32 * step;
+        let b = a + step;
+        tri((cx, cy), (cx + r * a.cos(), cy + r * a.sin()), (cx + r * b.cos(), cy + r * b.sin()), c);
+    }
+}
+/// Rounded rectangle. The pieces never overlap, so see-through colours stay even.
 pub fn rrect(x: f32, y: f32, w: f32, h: f32, r: f32, c: Color) {
+    use std::f32::consts::{FRAC_PI_2, PI};
     let r = r.min(w * 0.5).min(h * 0.5);
     rectv(x + r, y, w - 2.0 * r, h, c);
     rectv(x, y + r, r, h - 2.0 * r, c);
     rectv(x + w - r, y + r, r, h - 2.0 * r, c);
-    circ(x + r, y + r, r, c);
-    circ(x + w - r, y + r, r, c);
-    circ(x + r, y + h - r, r, c);
-    circ(x + w - r, y + h - r, r, c);
+    quarter(x + r, y + r, r, PI, c);
+    quarter(x + w - r, y + r, r, PI + FRAC_PI_2, c);
+    quarter(x + w - r, y + h - r, r, 0.0, c);
+    quarter(x + r, y + h - r, r, FRAC_PI_2, c);
 }
 pub fn tex_draw(tex: &Texture2D, x: f32, y: f32, w: f32, h: f32, col: Color, flip_x: bool, rot: f32) {
     draw_texture_ex(
@@ -95,13 +107,75 @@ pub fn tex_draw(tex: &Texture2D, x: f32, y: f32, w: f32, h: f32, col: Color, fli
 pub fn tex_center(tex: &Texture2D, cx: f32, cy: f32, w: f32, h: f32, col: Color, flip_x: bool, rot: f32) {
     tex_draw(tex, cx - w * 0.5, cy - h * 0.5, w, h, col, flip_x, rot);
 }
+thread_local! {
+    static FONT: RefCell<Option<Font>> = const { RefCell::new(None) };
+}
+
+/// Loads a bold font for all text: `assets/fonts/game.ttf` if it exists (next to the program,
+/// two folders up from `target/release`, or in the current folder), otherwise a bold font that
+/// ships with Windows. With none of them the built-in pixel font is used.
+fn load_game_font() {
+    let mut paths: Vec<std::path::PathBuf> = vec![];
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            paths.push(dir.join("assets/fonts/game.ttf"));
+            paths.push(dir.join("../../assets/fonts/game.ttf"));
+        }
+    }
+    paths.push("assets/fonts/game.ttf".into());
+    for f in ["ARLRDBD.TTF", "seguibl.ttf", "ariblk.ttf", "arialbd.ttf"] {
+        paths.push(std::path::Path::new("C:\\Windows\\Fonts").join(f));
+    }
+    for p in paths {
+        if let Ok(bytes) = std::fs::read(&p) {
+            if let Ok(font) = load_ttf_font_from_bytes(&bytes) {
+                FONT.with(|f| *f.borrow_mut() = Some(font));
+                return;
+            }
+        }
+    }
+}
+
+fn has_font() -> bool {
+    FONT.with(|f| f.borrow().is_some())
+}
+
+/// The built-in pixel font has no accents: without a real font they are dropped.
+fn fix_text(t: &str) -> std::borrow::Cow<'_, str> {
+    if t.is_ascii() || has_font() {
+        return t.into();
+    }
+    t.chars()
+        .map(|c| match c {
+            'á' | 'à' | 'â' | 'ã' | 'ä' => 'a',
+            'Á' | 'À' | 'Â' | 'Ã' => 'A',
+            'é' | 'è' | 'ê' | 'ë' => 'e',
+            'É' | 'Ê' => 'E',
+            'í' | 'ì' | 'î' => 'i',
+            'Í' => 'I',
+            'ó' | 'ò' | 'ô' | 'õ' | 'ö' => 'o',
+            'Ó' | 'Ô' | 'Õ' => 'O',
+            'ú' | 'ù' | 'û' | 'ü' => 'u',
+            'Ú' => 'U',
+            'ç' => 'c',
+            'Ç' => 'C',
+            _ => c,
+        })
+        .collect::<String>()
+        .into()
+}
+
 pub fn text_w(t: &str, size: f32) -> f32 {
-    let fs = sc(size).max(1.0);
-    measure_text(t, None, fs as u16, 1.0).width / view().0
+    let t = fix_text(t);
+    let fs = sc(size).max(1.0) as u16;
+    FONT.with(|f| measure_text(&t, f.borrow().as_ref(), fs, 1.0).width) / view().0
 }
 pub fn text(t: &str, x: f32, y: f32, size: f32, c: Color) {
-    let fs = sc(size).max(1.0);
-    draw_text(t, px(x), py(y), fs, c);
+    let t = fix_text(t);
+    let fs = sc(size).max(1.0) as u16;
+    FONT.with(|f| {
+        draw_text_ex(&t, px(x), py(y), TextParams { font: f.borrow().as_ref(), font_size: fs, color: c, ..Default::default() });
+    });
 }
 pub fn text_c(t: &str, cx: f32, y: f32, size: f32, c: Color) {
     let w = text_w(t, size);
@@ -110,9 +184,11 @@ pub fn text_c(t: &str, cx: f32, y: f32, size: f32, c: Color) {
 /// Centered text with a dark outline so it reads on any background.
 pub fn text_o(t: &str, cx: f32, y: f32, size: f32, c: Color) {
     let w = text_w(t, size);
-    let o = (size / 18.0).max(1.5);
-    for (dx, dy) in [(-o, 0.0), (o, 0.0), (0.0, -o), (0.0, o), (o, o)] {
-        text(t, cx - w * 0.5 + dx, y + dy, size, Color::new(0.05, 0.05, 0.1, 0.9));
+    let o = (size / 14.0).max(1.5);
+    let k = o * 0.7;
+    let dark = Color::new(0.04, 0.05, 0.1, 0.95);
+    for (dx, dy) in [(-o, 0.0), (o, 0.0), (0.0, -o), (0.0, o), (-k, -k), (k, -k), (-k, k), (k, k)] {
+        text(t, cx - w * 0.5 + dx, y + dy, size, dark);
     }
     text(t, cx - w * 0.5, y, size, c);
 }
@@ -296,9 +372,21 @@ pub struct App {
     lost: bool,
     assets: assets::Assets,
     pub my_power: u8, // PK_* or POWER_KINDS for "random"
+    pub touch_ui: bool, // on-screen buttons (always on phones, after the first touch elsewhere, or with T)
+    prev_ground: [bool; 2],
+    prev_kick: [bool; 2],
+    tour: Option<Tour>,
+    crowd_on: bool,
 }
 
-const LEVEL_NAMES: [&str; 3] = ["Facil", "Normal", "Dificil"];
+/// A knock-out cup against the computer: three rounds, each harder than the last.
+#[derive(Clone, Copy)]
+struct Tour {
+    round: usize,
+}
+const TOUR_ROUNDS: [(&str, usize); 3] = [("Quartas de final", 0), ("Semifinal", 1), ("Final", 2)];
+
+const LEVEL_NAMES: [&str; 3] = ["Fácil", "Normal", "Difícil"];
 
 impl App {
     fn new(sounds: Option<audio::Sounds>, assets: assets::Assets) -> App {
@@ -330,6 +418,19 @@ impl App {
             lost: false,
             assets,
             my_power: POWER_KINDS,
+            touch_ui: cfg!(target_os = "android"),
+            prev_ground: [true; 2],
+            prev_kick: [false; 2],
+            tour: None,
+            crowd_on: false,
+        }
+    }
+
+    /// Computer level in use: the cup sets its own, otherwise the menu choice.
+    fn cpu_level(&self) -> usize {
+        match self.tour {
+            Some(t) => TOUR_ROUNDS[t.round.min(2)].1,
+            None => self.level,
         }
     }
 
@@ -342,7 +443,12 @@ impl App {
         self.acc = 0.0;
         self.lost = false;
         self.particles.clear();
-        // each player brings a power (random when "Aleatorio" is chosen)
+        self.prev_ground = [true; 2];
+        self.prev_kick = [false; 2];
+        if mode != Mode::Cpu {
+            self.tour = None; // the cup is only against the computer
+        }
+        // each player brings a power (random when "Aleatório" is chosen)
         let mine = self.pick_power();
         let other = rand::gen_range(0, POWER_KINDS as u32) as u8;
         match mode {
@@ -368,7 +474,7 @@ impl App {
 
     fn power_label(&self) -> String {
         if self.my_power >= POWER_KINDS {
-            "Poder: Aleatorio".into()
+            "Poder: Aleatório".into()
         } else {
             format!("Poder: {}", POWER_NAMES[self.my_power as usize])
         }
@@ -402,10 +508,18 @@ impl App {
 
     fn gather_input(&mut self) -> [Input; 2] {
         let mut inp = [Input::default(); 2];
-        let pts = pointers();
-        for b in touch_layout(self.mode) {
-            if pts.iter().any(|&(x, y)| (x - b.x).powi(2) + (y - b.y).powi(2) < (b.r * 1.2).powi(2)) {
-                set_btn(&mut inp[b.who], b.kind);
+        if !touches().is_empty() {
+            self.touch_ui = true; // a finger on the screen: show the on-screen buttons
+        }
+        if is_key_pressed(KeyCode::T) {
+            self.touch_ui = !self.touch_ui;
+        }
+        if self.touch_ui {
+            let pts = pointers();
+            for b in touch_layout(self.mode) {
+                if pts.iter().any(|&(x, y)| (x - b.x).powi(2) + (y - b.y).powi(2) < (b.r * 1.2).powi(2)) {
+                    set_btn(&mut inp[b.who], b.kind);
+                }
             }
         }
         if self.mode == Mode::Local2 {
@@ -474,6 +588,70 @@ impl App {
         }
     }
 
+    /// A puff of dust on the grass (landing, take-off).
+    fn dust(&mut self, x: f32, y: f32, n: usize) {
+        for k in 0..n {
+            let dir = if k % 2 == 0 { -1.0 } else { 1.0 };
+            self.particles.push(Particle {
+                x: x + rand::gen_range(-18.0, 18.0),
+                y: y - 2.0,
+                vx: dir * rand::gen_range(40.0, 170.0),
+                vy: rand::gen_range(-90.0, -20.0),
+                life: 0.0,
+                max: rand::gen_range(0.25, 0.5),
+                r: rand::gen_range(4.0, 8.0),
+                c: Color::new(0.88, 0.84, 0.7, 1.0),
+            });
+        }
+    }
+
+    /// Jump / landing dust and kick swooshes, worked out from how the players moved
+    /// (so they also show on the joining device).
+    fn detect_fx(&mut self) {
+        for i in 0..2 {
+            let p = self.sim.p[i];
+            let near_grass = p.y + FEET > GROUND - 30.0;
+            if p.on_ground && !self.prev_ground[i] && near_grass {
+                self.dust(p.x, GROUND, 7);
+                self.play_one(|s| (&s.land, 0.35));
+            } else if !p.on_ground && self.prev_ground[i] && p.vy < -200.0 && near_grass {
+                self.dust(p.x, GROUND, 5);
+                self.play_one(|s| (&s.jump, 0.3));
+            }
+            self.prev_ground[i] = p.on_ground;
+            let kicking = p.kick_t >= 0.0;
+            if kicking && !self.prev_kick[i] {
+                let (fx, fy) = p.foot();
+                self.burst(fx + p.side * 20.0, fy, 4, with_a(WHITE, 1.0));
+            }
+            self.prev_kick[i] = kicking;
+        }
+    }
+
+    fn play_one(&self, pick: impl Fn(&audio::Sounds) -> (&macroquad::audio::Sound, f32)) {
+        if !self.sound_on {
+            return;
+        }
+        if let Some(s) = self.sounds.as_ref() {
+            let (snd, vol) = pick(s);
+            s.play(snd, vol);
+        }
+    }
+
+    /// Crowd murmur while a match is on.
+    fn crowd(&mut self, want: bool) {
+        let want = want && self.sound_on;
+        if let Some(s) = self.sounds.as_ref() {
+            if want && !self.crowd_on {
+                s.play_loop(&s.crowd, 0.12);
+                self.crowd_on = true;
+            } else if !want && self.crowd_on {
+                s.stop(&s.crowd);
+                self.crowd_on = false;
+            }
+        }
+    }
+
     fn burst(&mut self, x: f32, y: f32, n: usize, c: Color) {
         for i in 0..n {
             let a = i as f32 / n as f32 * 6.283 + rand::gen_range(0.0, 0.6);
@@ -513,13 +691,14 @@ impl App {
                 let run = !(self.paused && matches!(self.mode, Mode::Cpu | Mode::Local2)) && !self.lost;
                 if run {
                     self.acc += dt.min(0.1);
+                    let lvl = self.cpu_level();
                     while self.acc >= STEP {
                         self.acc -= STEP;
                         let mut i = inputs;
                         if self.mode == Mode::Cpu {
-                            i[1] = ai::think(&self.sim, 1, self.level, &mut self.ai[1], STEP);
+                            i[1] = ai::think(&self.sim, 1, lvl, &mut self.ai[1], STEP);
                             if self.ai_both {
-                                i[0] = ai::think(&self.sim, 0, self.level, &mut self.ai[0], STEP);
+                                i[0] = ai::think(&self.sim, 0, lvl, &mut self.ai[0], STEP);
                             }
                         }
                         self.sim.step(STEP, i);
@@ -538,6 +717,7 @@ impl App {
             self.over_t = 0.0;
         }
         self.play_events(ev);
+        self.detect_fx();
         // effects
         self.shake = (self.shake - dt).max(0.0);
         self.goal_anim += dt;
@@ -561,12 +741,138 @@ impl App {
         }
     }
 
+    // ------------------------------------------------------------ screenshot scenes (--shots)
+
+    /// Puts the app into a known state for `--shots` (menus, a goal, each power...).
+    fn scene_setup(&mut self, name: &str) {
+        self.paused = false;
+        self.over_t = 0.0;
+        self.ai_both = false;
+        self.particles.clear();
+        self.shake = 0.0;
+        self.touch_ui = name == "play_touch";
+        self.tour = match name {
+            "countdown_tour" => Some(Tour { round: 1 }),
+            "champion" => Some(Tour { round: 2 }),
+            "eliminated" => Some(Tour { round: 1 }),
+            _ => None,
+        };
+        match name {
+            "menu" => self.screen = Screen::Menu,
+            "host_lobby" => {
+                self.my_ip = "192.168.0.12".into();
+                self.screen = Screen::HostLobby;
+            }
+            "join_lobby" => {
+                self.ip_text = "192.168.0.12".into();
+                self.screen = Screen::JoinLobby;
+            }
+            _ => {
+                let mode = if name == "play_local2" { Mode::Local2 } else { Mode::Cpu };
+                self.my_power = PK_FIRE;
+                self.level = 2;
+                self.start_match(mode);
+                self.ai_both = name == "play_cpu" || name == "play_touch";
+                self.sim.phase = Phase::Play;
+                self.sim.time_left = 74.0;
+                self.sim.score = [1, 1];
+                self.sim.p[0].power = 0.65;
+                self.sim.p[1].power = 1.0;
+                let b = &mut self.sim.ball;
+                match name {
+                    "goal" => {
+                        self.sim.score = [2, 1];
+                        self.sim.phase = Phase::Goal;
+                        self.sim.phase_t = GOAL_PAUSE;
+                        self.sim.last_scorer = 0;
+                        self.goal_anim = 0.3;
+                    }
+                    "over" => {
+                        self.sim.score = [3, 2];
+                        self.sim.phase = Phase::Over;
+                        self.sim.time_left = 0.0;
+                        self.over_t = 2.0;
+                    }
+                    "countdown" | "countdown_tour" => {
+                        self.sim.phase = Phase::Countdown;
+                        self.sim.phase_t = 2.4;
+                        self.sim.score = [0, 0];
+                        self.sim.time_left = self.sim.match_len;
+                    }
+                    "overtime" => {
+                        self.sim.phase = Phase::Ready;
+                        self.sim.phase_t = 5.0;
+                        self.sim.overtime = true;
+                        self.sim.time_left = 0.0;
+                        self.sim.score = [2, 2];
+                    }
+                    "eliminated" => {
+                        self.sim.score = [1, 2];
+                        self.sim.phase = Phase::Over;
+                        self.sim.time_left = 0.0;
+                        self.over_t = 2.0;
+                    }
+                    "champion" => {
+                        self.sim.score = [2, 0];
+                        self.sim.phase = Phase::Over;
+                        self.sim.time_left = 0.0;
+                        self.over_t = 2.0;
+                    }
+                    "pause" => self.paused = true,
+                    "stun" => {
+                        self.sim.p[1].stun = 0.9;
+                        self.sim.p[0].power_ready = 4.0;
+                        self.sim.p[0].power = 1.0;
+                    }
+                    "pw_fire" => {
+                        *b = Ball { x: 560.0, y: 430.0, vx: 1100.0, vy: -150.0, fire: 1.1, fire_owner: 0, ..Default::default() };
+                    }
+                    "pw_big" => {
+                        *b = Ball { x: 640.0, y: 420.0, big: 7.0, ..Default::default() };
+                    }
+                    "pw_ice" => {
+                        *b = Ball { x: 760.0, y: 440.0, vx: 500.0, ice: 1.4, ice_owner: 0, ..Default::default() };
+                        self.sim.p[1].frozen = 2.6;
+                        self.sim.p[1].stun = 2.6;
+                    }
+                    "pw_invis" => {
+                        *b = Ball { x: 640.0, y: 420.0, invis: 4.0, invis_owner: 0, ..Default::default() };
+                    }
+                    "pw_bomb" => {
+                        *b = Ball { x: 640.0, y: 420.0, bomb: 1.6, bomb_owner: 0, ..Default::default() };
+                    }
+                    "pw_clone" => {
+                        *b = Ball { x: 560.0, y: 430.0, vx: 700.0, vy: -300.0, clone_t: 4.0, ..Default::default() };
+                        b.clones = [[600.0, 330.0, 700.0, -500.0], [600.0, 480.0, 800.0, 100.0]];
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    /// One frame of a `--shots` scene: no real input, fixed time step.
+    fn scene_frame(&mut self, dt: f32) {
+        self.now += dt as f64;
+        match self.screen {
+            Screen::Menu => self.menu(),
+            Screen::HostLobby => self.host_lobby(),
+            Screen::JoinLobby => self.join_lobby(),
+            Screen::Match => {
+                self.update_match(dt, [Input::default(); 2]);
+                self.draw_match();
+                self.match_overlays();
+            }
+        }
+    }
+
     // ------------------------------------------------------------ frame
 
     async fn frame(&mut self, dt: f32) {
         self.now += dt as f64;
         set_view();
         clear_background(hex(0x0b1022));
+        self.crowd(self.screen == Screen::Match);
         match self.screen {
             Screen::Menu => self.menu(),
             Screen::HostLobby => self.host_lobby(),
@@ -623,19 +929,27 @@ impl App {
         tex_center(&self.assets.p2_head, 1090.0, 412.0 + bob2, 168.0, 168.0, WHITE, true, -(t * 1.4).sin() * 0.04);
 
         tex_center(&self.assets.logo, 640.0, 130.0 + (t * 2.2).sin() * 4.0, 470.0, 235.0, WHITE, false, 0.0);
-        text_o("futebol de cabeca 1 contra 1  -  sem internet, sem servidor", 640.0, 260.0, 24.0, hex(0xe4f0ff));
+        rrect(290.0, 236.0, 700.0, 34.0, 17.0, with_a(BLACK, 0.5));
+        text_o("futebol de cabeça 1 contra 1  -  sem internet, sem servidor", 640.0, 261.0, 22.0, hex(0xe4f0ff));
 
         let bx = 390.0;
         let bw = 500.0;
-        if self.button("Contra o computador", bx, 285.0, bw, 66.0, hex(0x2f8f4e)) {
+        let bh = 58.0;
+        if self.button("Contra o computador", bx, 284.0, bw, bh, hex(0x2f8f4e)) {
+            self.tour = None;
             self.start_match(Mode::Cpu);
             return;
         }
-        if self.button("2 jogadores neste aparelho", bx, 365.0, bw, 66.0, hex(0x2d6fd0)) {
+        if self.button("Campeonato (3 fases)", bx, 350.0, bw, bh, hex(0xc9951a)) {
+            self.tour = Some(Tour { round: 0 });
+            self.start_match(Mode::Cpu);
+            return;
+        }
+        if self.button("2 jogadores neste aparelho", bx, 416.0, bw, bh, hex(0x2d6fd0)) {
             self.start_match(Mode::Local2);
             return;
         }
-        if self.button("Criar partida (rede local)", bx, 445.0, bw, 66.0, hex(0xd06a2d)) {
+        if self.button("Criar partida (rede local)", bx, 482.0, bw, bh, hex(0xd06a2d)) {
             let ip = net::local_ip().map(|i| i.to_string()).unwrap_or_else(|| "sem rede".into());
             let name = format!("Partida {}", ip);
             let h = net::Host::new(net::PORT, &name).or_else(|_| net::Host::new(0, &name));
@@ -645,11 +959,11 @@ impl App {
                     self.host = Some(h);
                     self.screen = Screen::HostLobby;
                 }
-                Err(e) => self.status = format!("Nao foi possivel abrir a partida: {}", e),
+                Err(e) => self.status = format!("Não foi possível abrir a partida: {}", e),
             }
             return;
         }
-        if self.button("Entrar em partida (rede local)", bx, 525.0, bw, 66.0, hex(0x8a3fc0)) {
+        if self.button("Entrar em partida (rede local)", bx, 548.0, bw, bh, hex(0x8a3fc0)) {
             match net::Client::new() {
                 Ok(mut c) => {
                     c.pkind = self.pick_power();
@@ -657,7 +971,7 @@ impl App {
                     self.status.clear();
                     self.screen = Screen::JoinLobby;
                 }
-                Err(e) => self.status = format!("Rede indisponivel: {}", e),
+                Err(e) => self.status = format!("Rede indisponível: {}", e),
             }
             return;
         }
@@ -686,15 +1000,15 @@ impl App {
         let joined = self.host.as_mut().map(|h| h.poll(now)).unwrap_or(false);
         text_o("Partida aberta neste aparelho", 640.0, 130.0, 48.0, hex(0xffd34d));
         rrect(300.0, 165.0, 680.0, 120.0, 20.0, with_a(BLACK, 0.45));
-        text_o("Endereco deste aparelho:", 640.0, 205.0, 26.0, hex(0xcfe3ff));
+        text_o("Endereço deste aparelho:", 640.0, 205.0, 26.0, hex(0xcfe3ff));
         text_o(&self.my_ip, 640.0, 262.0, 54.0, WHITE);
         let dots = ".".repeat(((now * 2.0) as usize) % 4);
         text_o(&format!("Aguardando o outro jogador{}", dots), 640.0, 345.0, 34.0, WHITE);
         let lines = [
             "Os dois aparelhos precisam estar na mesma rede Wi-Fi,",
-            "ou um conectado ao roteador (hotspot) do outro. Nao usa internet.",
+            "ou um conectado ao roteador (hotspot) do outro. Não usa internet.",
             "No outro aparelho: Entrar em partida. Ela aparece sozinha na lista,",
-            "ou digite o endereco acima.",
+            "ou digite o endereço acima.",
         ];
         for (i, l) in lines.iter().enumerate() {
             text_o(l, 640.0, 400.0 + i as f32 * 32.0, 24.0, hex(0xb8c6e6));
@@ -730,7 +1044,7 @@ impl App {
             if let Some(c) = self.client.as_mut() {
                 c.host = None;
             }
-            self.status = "Nao foi possivel conectar. Confira o endereco e a rede.".into();
+            self.status = "Não foi possível conectar. Confira o endereço e a rede.".into();
         }
 
         // found matches
@@ -740,7 +1054,7 @@ impl App {
         if found.is_empty() {
             let dots = ".".repeat(((now * 2.0) as usize) % 4);
             text_o(&format!("Procurando{}", dots), 340.0, 220.0, 26.0, hex(0xb8c6e6));
-            text_o("Se nao aparecer, digite o endereco", 340.0, 270.0, 22.0, hex(0x93a3c8));
+            text_o("Se não aparecer, digite o endereço", 340.0, 270.0, 22.0, hex(0x93a3c8));
             text_o("mostrado no aparelho que criou a partida.", 340.0, 298.0, 22.0, hex(0x93a3c8));
         }
         let mut pick = None;
@@ -752,7 +1066,7 @@ impl App {
 
         // manual address
         rrect(660.0, 110.0, 560.0, 470.0, 20.0, with_a(BLACK, 0.45));
-        text_o("Ou digite o endereco", 940.0, 150.0, 28.0, WHITE);
+        text_o("Ou digite o endereço", 940.0, 150.0, 28.0, WHITE);
         rrect(690.0, 168.0, 500.0, 60.0, 12.0, hex(0x10162c));
         let caret = if (now * 2.0) as i64 % 2 == 0 { "_" } else { " " };
         text_o(&format!("{}{}", self.ip_text, caret), 940.0, 212.0, 38.0, WHITE);
@@ -781,7 +1095,7 @@ impl App {
             let addr = if t.contains(':') { t.parse::<SocketAddr>().ok() } else { t.parse::<IpAddr>().ok().map(|ip| SocketAddr::new(ip, net::PORT)) };
             match addr {
                 Some(a) => pick = Some(a),
-                None => self.status = "Endereco invalido (exemplo: 192.168.0.12)".into(),
+                None => self.status = "Endereço inválido (exemplo: 192.168.0.12)".into(),
             }
         }
         if let Some(a) = pick {
@@ -803,7 +1117,7 @@ impl App {
         match self.mode {
             Mode::Cpu => {
                 if i == 0 {
-                    if self.ai_both { "CPU 1" } else { "VOCE" }
+                    if self.ai_both { "CPU 1" } else { "VOCÊ" }
                 } else {
                     "CPU"
                 }
@@ -812,10 +1126,10 @@ impl App {
                 if i == 0 { "JOGADOR 1" } else { "JOGADOR 2" }
             }
             Mode::Host => {
-                if i == 0 { "VOCE" } else { "AMIGO" }
+                if i == 0 { "VOCÊ" } else { "AMIGO" }
             }
             Mode::Client => {
-                if i == 1 { "VOCE" } else { "AMIGO" }
+                if i == 1 { "VOCÊ" } else { "AMIGO" }
             }
         }
     }
@@ -835,7 +1149,7 @@ impl App {
 
         if self.lost {
             rectv(0.0, 0.0, W, H, with_a(BLACK, 0.6));
-            let msg = if self.mode == Mode::Host { "O outro jogador saiu ou perdeu a conexao" } else { "Conexao com a partida perdida" };
+            let msg = if self.mode == Mode::Host { "O outro jogador saiu ou perdeu a conexão" } else { "Conexão com a partida perdida" };
             text_o(msg, 640.0, 300.0, 40.0, WHITE);
             if self.mode == Mode::Host {
                 if self.button("Esperar de novo", 340.0, 380.0, 280.0, 64.0, hex(0x2f8f4e)) {
@@ -871,24 +1185,59 @@ impl App {
         }
 
         if sim.phase == Phase::Over && self.over_t > 1.2 {
-            rectv(0.0, 0.0, W, H, with_a(BLACK, 0.55));
             let mine = self.local_players();
+            let won = matches!(sim.winner(), Some(w) if mine.contains(&w));
+            let score_line = format!("{}  {} x {}  {}", self.player_name(0), sim.score[0], sim.score[1], self.player_name(1));
+            if let (Some(t), Mode::Cpu) = (self.tour, self.mode) {
+                // ---- the cup
+                if won && t.round + 1 >= TOUR_ROUNDS.len() {
+                    self.champion_screen();
+                    return;
+                }
+                rectv(0.0, 0.0, W, H, with_a(BLACK, 0.55));
+                if won {
+                    text_o("VITÓRIA!", 640.0, 240.0, 80.0, hex(0xffd34d));
+                    text_o(&score_line, 640.0, 300.0, 36.0, WHITE);
+                    text_o(&format!("Próxima fase: {}", TOUR_ROUNDS[t.round + 1].0), 640.0, 350.0, 30.0, hex(0xcfe3ff));
+                    if self.button("Próxima fase", 340.0, 390.0, 280.0, 64.0, hex(0x2f8f4e)) {
+                        self.tour = Some(Tour { round: t.round + 1 });
+                        self.start_match(Mode::Cpu);
+                    }
+                } else {
+                    text_o("ELIMINADO", 640.0, 240.0, 80.0, hex(0xff7a6a));
+                    text_o(&score_line, 640.0, 300.0, 36.0, WHITE);
+                    text_o(&format!("Você caiu na fase: {}", TOUR_ROUNDS[t.round].0), 640.0, 350.0, 30.0, hex(0xcfe3ff));
+                    if self.button("Tentar de novo", 340.0, 390.0, 280.0, 64.0, hex(0x2f8f4e)) {
+                        self.tour = Some(Tour { round: 0 });
+                        self.start_match(Mode::Cpu);
+                    }
+                }
+                if self.button("Menu", 660.0, 390.0, 280.0, 64.0, hex(0x5a2d3a)) {
+                    self.tour = None;
+                    self.to_menu();
+                }
+                return;
+            }
+            rectv(0.0, 0.0, W, H, with_a(BLACK, 0.55));
             let title = match sim.winner() {
                 None => "EMPATE".to_string(),
                 Some(w) => {
                     if self.mode == Mode::Local2 || self.ai_both {
                         format!("{} VENCEU!", self.player_name(w))
                     } else if mine.contains(&w) {
-                        "VITORIA!".to_string()
+                        "VITÓRIA!".to_string()
                     } else {
                         "DERROTA".to_string()
                     }
                 }
             };
             text_o(&title, 640.0, 250.0, 80.0, hex(0xffd34d));
-            text_o(&format!("{}  {} x {}  {}", self.player_name(0), sim.score[0], sim.score[1], self.player_name(1)), 640.0, 310.0, 36.0, WHITE);
+            text_o(&score_line, 640.0, 310.0, 36.0, WHITE);
+            if sim.overtime {
+                text_o("decidido no gol de ouro", 640.0, 350.0, 24.0, hex(0xffe9a0));
+            }
             if self.mode == Mode::Client {
-                text_o("Aguardando o anfitriao comecar outra partida...", 640.0, 370.0, 26.0, hex(0xb8c6e6));
+                text_o("Aguardando o anfitrião começar outra partida...", 640.0, 370.0, 26.0, hex(0xb8c6e6));
                 if self.button("Menu", 490.0, 420.0, 300.0, 64.0, hex(0x5a2d3a)) {
                     self.to_menu();
                 }
@@ -904,6 +1253,32 @@ impl App {
                     self.to_menu();
                 }
             }
+        }
+    }
+
+    /// The cup is won: the winner on the podium with confetti.
+    fn champion_screen(&mut self) {
+        tex_draw(&self.assets.menu_bg, 0.0, 0.0, W, H, WHITE, false, 0.0);
+        rectv(0.0, 0.0, W, H, with_a(hex(0x080d1e), 0.15));
+        let t = self.now as f32;
+        ellipse(640.0, 546.0, 90.0, 18.0, with_a(BLACK, 0.3));
+        tex_center(&self.assets.p1_head, 640.0, 470.0 + (t * 3.0).sin() * 5.0, 200.0, 200.0, WHITE, false, (t * 1.6).sin() * 0.05);
+        text_o("CAMPEÃO!", 640.0, 150.0, 96.0, hex(0xffd34d));
+        text_o("Você venceu o campeonato!", 640.0, 205.0, 34.0, WHITE);
+        if rand::gen_range(0.0, 1.0) < 0.35 {
+            let c = [hex(0xffd34d), hex(0xff5a5a), hex(0x5ad1ff), WHITE, hex(0x7dff7d)][rand::gen_range(0, 5) as usize];
+            self.burst(rand::gen_range(100.0, 1180.0), 60.0, 5, c);
+        }
+        for p in &self.particles {
+            circ(p.x, p.y, p.r, with_a(p.c, 1.0 - p.life / p.max));
+        }
+        if self.button("Jogar de novo", 300.0, 600.0, 320.0, 64.0, hex(0x2f8f4e)) {
+            self.tour = Some(Tour { round: 0 });
+            self.start_match(Mode::Cpu);
+        }
+        if self.button("Menu", 660.0, 600.0, 320.0, 64.0, hex(0x5a2d3a)) {
+            self.tour = None;
+            self.to_menu();
         }
     }
 
@@ -1103,7 +1478,12 @@ impl App {
         text_o(&sim.score[1].to_string(), sb_x + sb_w * 0.759, 74.0, 50.0, hex(0xffa49b));
         let tl = sim.time_left.max(0.0).ceil() as i32;
         let tcol = if tl <= 10 && sim.phase == Phase::Play { hex(0xff6a5a) } else { hex(0xffe14a) };
-        text_o(&format!("{}:{:02}", tl / 60, tl % 60), 640.0, 68.0, 26.0, tcol);
+        if sim.overtime {
+            let pulse = 0.5 + 0.5 * (self.now as f32 * 6.0).sin().abs();
+            text_o("OURO", 640.0, 66.0, 20.0, mix(WHITE, hex(0xffd34d), pulse));
+        } else {
+            text_o(&format!("{}:{:02}", tl / 60, tl % 60), 640.0, 68.0, 26.0, tcol);
+        }
         self.hud.score = true;
         self.hud.timer = true;
         // names and power bars
@@ -1111,10 +1491,10 @@ impl App {
             let p = sim.p[i];
             let (bx, name_x) = if i == 0 { (30.0, 30.0) } else { (W - 30.0 - 360.0, W - 30.0) };
             let name = self.player_name(i);
-            let nw = text_w(name, 26.0);
+            let nw = text_w(name, 28.0);
             let nx = if i == 0 { name_x } else { name_x - nw };
-            text(name, nx + 2.0, 34.0, 26.0, with_a(BLACK, 0.7));
-            text(name, nx, 32.0, 26.0, WHITE);
+            text(name, nx + 2.0, 35.0, 28.0, with_a(BLACK, 0.75));
+            text(name, nx, 33.0, 28.0, WHITE);
             rrect(bx, 44.0, 360.0, 26.0, 13.0, with_a(hex(0x0b1022), 0.85));
             let fill = if p.power_ready > 0.0 { p.power_ready / game::POWER_READY_TIME } else { p.power };
             let fw = (352.0 * fill).max(0.0);
@@ -1133,21 +1513,46 @@ impl App {
             } else {
                 format!("PODER: {}", pname)
             };
-            text_o(&label, bx + 180.0, 64.0, 18.0, WHITE);
+            text_o(&label, bx + 180.0, 65.0, 20.0, WHITE);
         }
         self.hud.power = true;
+        if let Some(t) = self.tour {
+            let label = format!("Campeonato: {}", TOUR_ROUNDS[t.round.min(2)].0);
+            text(&label, 32.0, 100.0, 22.0, with_a(BLACK, 0.75));
+            text(&label, 30.0, 98.0, 22.0, hex(0xffe9a0));
+        }
 
         // big centre messages
         match sim.phase {
             Phase::Countdown => {
+                // "versus" banner at the very start of the match
+                if sim.score == [0, 0] {
+                    rrect(250.0, 196.0, 780.0, 164.0, 24.0, with_a(BLACK, 0.5));
+                    let bob = (self.now as f32 * 4.0).sin() * 3.0;
+                    tex_center(&self.assets.p1_head, 400.0, 266.0 + bob, 124.0, 124.0, WHITE, false, 0.0);
+                    tex_center(&self.assets.p2_head, 880.0, 266.0 - bob, 124.0, 124.0, WHITE, true, 0.0);
+                    text_o("VS", 640.0, 288.0, 84.0, hex(0xffd34d));
+                    if let Some(t) = self.tour {
+                        text_o(TOUR_ROUNDS[t.round.min(2)].0, 640.0, 330.0, 24.0, WHITE);
+                    }
+                    text_o(self.player_name(0), 400.0, 348.0, 26.0, hex(0x9be2ff));
+                    text_o(self.player_name(1), 880.0, 348.0, 26.0, hex(0xffa49b));
+                }
                 let n = sim.phase_t.ceil() as i32;
                 let k = 1.0 + (sim.phase_t.fract()) * 0.4;
-                text_o(&n.max(1).to_string(), 640.0, 330.0, 120.0 * k, hex(0xffd34d));
+                text_o(&n.max(1).to_string(), 640.0, 470.0, 120.0 * k, hex(0xffd34d));
             }
-            Phase::Ready => text_o("PREPARAR...", 640.0, 300.0, 60.0, WHITE),
+            Phase::Ready => {
+                if sim.overtime {
+                    text_o("GOL DE OURO!", 640.0, 300.0, 72.0, hex(0xffd34d));
+                    text_o("quem marcar primeiro vence", 640.0, 346.0, 28.0, WHITE);
+                } else {
+                    text_o("PREPARAR...", 640.0, 300.0, 60.0, WHITE);
+                }
+            }
             Phase::Play => {
                 if sim.time_left > sim.match_len - 0.8 {
-                    text_o("JA!", 640.0, 320.0, 110.0, hex(0xffd34d));
+                    text_o("JÁ!", 640.0, 320.0, 110.0, hex(0xffd34d));
                 }
             }
             Phase::Goal => {
@@ -1164,7 +1569,24 @@ impl App {
         }
     }
 
+    /// A line of key hints at the bottom of the screen (shown instead of the touch buttons).
+    fn draw_controls_hint(&self) {
+        let msg = match self.mode {
+            Mode::Local2 => "JOGADOR 1: A D mover, W pular, F chutar, G chute alto, R poder    |    JOGADOR 2: setas, K L O    |    P pausa",
+            _ => "A D mover    |    W pular    |    F chutar    |    G chute alto    |    R poder    |    P pausa    |    T botões",
+        };
+        let size = 19.0;
+        let w = text_w(msg, size) + 44.0;
+        let fade = if self.sim.time_left < self.sim.match_len - 10.0 { 0.55 } else { 1.0 };
+        rrect(640.0 - w * 0.5, 683.0, w, 30.0, 15.0, with_a(BLACK, 0.5 * fade));
+        text(msg, 640.0 - w * 0.5 + 22.0, 704.0, size, with_a(WHITE, 0.95 * fade));
+    }
+
     fn draw_touch_buttons(&mut self) {
+        if !self.touch_ui {
+            self.draw_controls_hint();
+            return;
+        }
         let t = self.now as f32;
         for b in touch_layout(self.mode) {
             let inp = self.held[b.who];
@@ -1232,6 +1654,7 @@ fn conf() -> Conf {
 enum Run {
     Normal,
     Screenshot(String),
+    Shots(String),
     SelfTest(String),
 }
 
@@ -1241,6 +1664,9 @@ fn parse_args() -> Run {
     while i < args.len() {
         if args[i] == "--screenshot" && i + 1 < args.len() {
             return Run::Screenshot(args[i + 1].clone());
+        }
+        if args[i] == "--shots" && i + 1 < args.len() {
+            return Run::Shots(args[i + 1].clone());
         }
         if args[i] == "--self-test" && i + 1 < args.len() {
             return Run::SelfTest(args[i + 1].clone());
@@ -1253,6 +1679,7 @@ fn parse_args() -> Run {
 async fn amain(run: Run, prev_fg: isize) {
     let quiet = !matches!(run, Run::Normal);
     let sounds = if quiet { None } else { audio::Sounds::load().await };
+    load_game_font();
     let assets = assets::Assets::load();
     let mut app = App::new(sounds, assets);
     match run {
@@ -1288,6 +1715,35 @@ async fn amain(run: Run, prev_fg: isize) {
                     img.export_png(&path);
                 }
                 next_frame().await;
+            }
+            std::process::exit(0);
+        }
+        Run::Shots(dir) => {
+            // `--shots <folder>`: one picture of every screen and power, to check how the game looks
+            let _ = std::fs::create_dir_all(&dir);
+            let scenes = [
+                "menu", "host_lobby", "join_lobby", "countdown", "countdown_tour", "play_cpu", "play_touch", "play_local2", "stun",
+                "goal", "overtime", "over", "eliminated", "champion", "pause", "pw_fire", "pw_big", "pw_ice", "pw_invis", "pw_bomb",
+                "pw_clone",
+            ];
+            let mut first = true;
+            for (n, name) in scenes.iter().enumerate() {
+                app.scene_setup(name);
+                let last = if name.starts_with("pw_") || *name == "stun" { 14 } else { 90 };
+                for f in 0..=last {
+                    if first {
+                        win::lower_window(prev_fg);
+                        first = false;
+                    }
+                    set_view();
+                    clear_background(hex(0x0b1022));
+                    app.scene_frame(1.0 / 60.0);
+                    if f == last {
+                        let img = get_screen_data();
+                        img.export_png(&format!("{}/{:02}_{}.png", dir, n + 1, name));
+                    }
+                    next_frame().await;
+                }
             }
             std::process::exit(0);
         }

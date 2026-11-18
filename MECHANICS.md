@@ -56,7 +56,8 @@ The original ships sound effects for these ball powers (file names in the game p
 ## Match (estimated)
 - 1 v 1, goals at both ends (goal line 86 px from the wall, crossbar top at 388 px, ground at 620 px).
 - Match length 90 s (60 / 120 selectable); 3 s countdown; 2.2 s goal celebration; ball dropped at the centre after each goal.
-- Most goals when time runs out wins; equal is a draw.
+- Most goals when time runs out wins. A tie goes to **golden-goal overtime** (this game's own rule, not read from the original): players and ball go back to the centre, the clock stops at 0:00 and the next goal wins.
+- **Campeonato** (also this game's own design): three matches against the computer (Quartas = easy, Semifinal = normal, Final = hard). Lose one and you are out; win all three and you are the champion.
 
 ## Computer player
 Three levels: reaction 0.26 / 0.14 / 0.06 s, mistake chance 35 / 15 / 4 %. It stands behind the ball to push it forward, runs back when the ball is behind it or flying at its goal, jumps to head dropping balls, kicks balls at its feet, sometimes kicks the opponent, uses the power when full and close.

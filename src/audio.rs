@@ -1,6 +1,6 @@
 //! Sounds made from simple waves and noise at start-up (no sound files).
 
-use macroquad::audio::{load_sound_from_bytes, play_sound, PlaySoundParams, Sound};
+use macroquad::audio::{load_sound_from_bytes, play_sound, stop_sound, PlaySoundParams, Sound};
 
 const RATE: u32 = 22050;
 
@@ -50,6 +50,26 @@ fn gen(secs: f32, f: impl Fn(f32, f32, &mut Noise) -> f32) -> Vec<u8> {
 
 use std::f32::consts::TAU;
 
+/// A few seconds of soft crowd murmur (low-passed noise that swells and fades), made to be looped.
+fn crowd_wave() -> Vec<u8> {
+    let secs = 4.0f32;
+    let n = (secs * RATE as f32) as usize;
+    let mut nz = Noise(0x1234abcd);
+    let (mut lp1, mut lp2) = (0.0f32, 0.0f32);
+    let s: Vec<f32> = (0..n)
+        .map(|i| {
+            let t = i as f32 / RATE as f32;
+            let k = t / secs;
+            lp1 += (nz.next() - lp1) * 0.12;
+            lp2 += (lp1 - lp2) * 0.25;
+            let swell = 0.75 + 0.25 * (TAU * 0.5 * t).sin();
+            let edge = (k / 0.03).min(1.0) * ((1.0 - k) / 0.03).min(1.0);
+            lp2 * 2.2 * swell * edge
+        })
+        .collect();
+    wav(&s)
+}
+
 pub struct Sounds {
     pub kick: Sound,
     pub head: Sound,
@@ -60,6 +80,9 @@ pub struct Sounds {
     pub beep: Sound,
     pub power: Sound,
     pub stun: Sound,
+    pub jump: Sound,
+    pub land: Sound,
+    pub crowd: Sound,
 }
 
 impl Sounds {
@@ -86,6 +109,9 @@ impl Sounds {
         let beep = gen(0.12, |t, k, _| (TAU * 880.0 * t).sin() * 0.4 * (1.0 - k));
         let power = gen(0.5, |t, k, n| ((TAU * (300.0 + 900.0 * k) * t).sin() * 0.4 + n.next() * 0.15) * (1.0 - k * 0.6));
         let stun = gen(0.3, |t, k, _| (TAU * (700.0 - 400.0 * k) * t).sin() * 0.35 * (1.0 - k));
+        let jump = gen(0.12, |t, k, _| (TAU * (300.0 + 320.0 * k) * t).sin() * 0.4 * (1.0 - k).powi(2));
+        let land = gen(0.10, |t, k, n| ((TAU * (95.0 - 30.0 * k) * t).sin() * 0.6 + n.next() * 0.25) * (1.0 - k).powi(3));
+        let crowd = crowd_wave();
         Some(Sounds {
             kick: load_sound_from_bytes(&kick).await.ok()?,
             head: load_sound_from_bytes(&head).await.ok()?,
@@ -96,10 +122,21 @@ impl Sounds {
             beep: load_sound_from_bytes(&beep).await.ok()?,
             power: load_sound_from_bytes(&power).await.ok()?,
             stun: load_sound_from_bytes(&stun).await.ok()?,
+            jump: load_sound_from_bytes(&jump).await.ok()?,
+            land: load_sound_from_bytes(&land).await.ok()?,
+            crowd: load_sound_from_bytes(&crowd).await.ok()?,
         })
     }
 
     pub fn play(&self, s: &Sound, vol: f32) {
         play_sound(s, PlaySoundParams { looped: false, volume: vol });
+    }
+
+    pub fn play_loop(&self, s: &Sound, vol: f32) {
+        play_sound(s, PlaySoundParams { looped: true, volume: vol });
+    }
+
+    pub fn stop(&self, s: &Sound) {
+        stop_sound(s);
     }
 }

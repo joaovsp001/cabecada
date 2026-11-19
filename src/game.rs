@@ -64,6 +64,30 @@ pub const PK_CLONE: u8 = 5; // next kick: two fake balls fly off beside the real
 pub const POWER_KINDS: u8 = 6;
 pub const POWER_NAMES: [&str; 6] = ["Fogo", "Bola gigante", "Gelo", "Invisível", "Bomba", "Clones"];
 
+/// One playable character: its name and how it plays (1.0 = normal). The differences
+/// are small on purpose, like the attributes of the original (speed, jump, kick, power).
+pub struct CharStats {
+    pub name: &'static str,
+    pub speed: f32,
+    pub jump: f32,
+    pub kick: f32,
+    pub charge: f32, // how fast the power bar fills
+}
+
+/// The characters, in the order of the pictures `p1_head.png` .. `p6_head.png`.
+pub const CHARS: [CharStats; 6] = [
+    CharStats { name: "Rafa", speed: 1.00, jump: 1.00, kick: 1.00, charge: 1.00 },
+    CharStats { name: "Zeca", speed: 1.08, jump: 0.97, kick: 0.97, charge: 1.00 },
+    CharStats { name: "Dudu", speed: 0.97, jump: 1.08, kick: 1.00, charge: 0.97 },
+    CharStats { name: "Lia", speed: 1.05, jump: 1.04, kick: 0.94, charge: 1.00 },
+    CharStats { name: "Ruivo", speed: 0.94, jump: 0.97, kick: 1.10, charge: 1.00 },
+    CharStats { name: "Rei", speed: 1.00, jump: 0.98, kick: 0.98, charge: 1.12 },
+];
+
+pub fn char_stats(look: u8) -> &'static CharStats {
+    &CHARS[(look as usize) % CHARS.len()]
+}
+
 pub const BIG_TIME: f32 = 7.0;
 pub const BIG_SCALE: f32 = 1.9;
 pub const ICE_SPEED: f32 = 1250.0;
@@ -156,6 +180,7 @@ pub struct Player {
     pub walk: f32, // walk animation phase
     pub pkind: u8, // which power this player brings (PK_*)
     pub frozen: f32, // frozen in ice (also counts as stunned)
+    pub look: u8, // which character (CHARS): its face and its attributes
 }
 
 impl Player {
@@ -270,6 +295,7 @@ pub struct Sim {
     pub events: u32,
     pub touches: [u32; 2],
     pub overtime: bool, // tied at the whistle: the next goal wins (golden goal)
+    pub stadium: u8,    // which stadium picture (sent to the other device too)
     prev: [Input; 2],
     rng: u32,
 }
@@ -292,6 +318,7 @@ impl Sim {
             events: 0,
             touches: [0, 0],
             overtime: false,
+            stadium: 0,
             prev: [Input::default(); 2],
             rng: 0x9e3779b9,
         };
@@ -401,7 +428,7 @@ impl Sim {
             let pin = prev[i];
             let p = &mut self.p[i];
             if self.phase == Phase::Play {
-                p.power = (p.power + dt / POWER_CHARGE_TIME).min(1.0);
+                p.power = (p.power + dt / POWER_CHARGE_TIME * char_stats(p.look).charge).min(1.0);
             }
             p.kick_cd = (p.kick_cd - dt).max(0.0);
             if p.power_ready > 0.0 {
@@ -427,7 +454,7 @@ impl Sim {
                     want += 1.0;
                 }
             }
-            let target = want * MOVE_SPEED;
+            let target = want * MOVE_SPEED * char_stats(p.look).speed;
             let acc = if p.on_ground { GROUND_ACCEL } else { AIR_ACCEL } * dt;
             if stunned && p.on_ground {
                 p.vx *= 1.0 - (6.0 * dt).min(1.0);
@@ -439,7 +466,7 @@ impl Sim {
                 }
             }
             if !stunned && inp.jump && p.on_ground {
-                p.vy = -JUMP_SPEED;
+                p.vy = -JUMP_SPEED * char_stats(p.look).jump;
                 p.on_ground = false;
             }
             if !stunned && can_kick && p.kick_cd <= 0.0 && p.kick_t < 0.0 {
@@ -568,11 +595,12 @@ impl Sim {
         let d = len(self.ball.x - fx, self.ball.y - fy);
         if d < self.ball.r() + FOOT_R + KICK_REACH {
             let s = p.side;
+            let ks = char_stats(p.look).kick;
             if p.power_ready > 0.0 && p.pkind != PK_FIRE {
                 let (dx, dy, sp) = if p.kick_kind == 2 {
-                    (HIGH_KICK_DIR.0, HIGH_KICK_DIR.1, HIGH_KICK_SPEED)
+                    (HIGH_KICK_DIR.0, HIGH_KICK_DIR.1, HIGH_KICK_SPEED * ks)
                 } else {
-                    (LOW_KICK_DIR.0, LOW_KICK_DIR.1, LOW_KICK_SPEED)
+                    (LOW_KICK_DIR.0, LOW_KICK_DIR.1, LOW_KICK_SPEED * ks)
                 };
                 let b = &mut self.ball;
                 b.vx = s * dx * sp + p.vx * KICK_CARRY;
@@ -614,9 +642,9 @@ impl Sim {
                 self.events |= EV_FIRE;
             } else {
                 let (dx, dy, sp) = if p.kick_kind == 2 {
-                    (HIGH_KICK_DIR.0, HIGH_KICK_DIR.1, HIGH_KICK_SPEED)
+                    (HIGH_KICK_DIR.0, HIGH_KICK_DIR.1, HIGH_KICK_SPEED * ks)
                 } else {
-                    (LOW_KICK_DIR.0, LOW_KICK_DIR.1, LOW_KICK_SPEED)
+                    (LOW_KICK_DIR.0, LOW_KICK_DIR.1, LOW_KICK_SPEED * ks)
                 };
                 self.ball.vx = s * dx * sp + p.vx * KICK_CARRY;
                 self.ball.vy = dy * sp + p.vy.min(0.0) * KICK_CARRY;
@@ -860,6 +888,7 @@ impl Sim {
             out.push(p.kick_kind);
             out.push(p.on_ground as u8);
             out.push(p.pkind);
+            out.push(p.look);
             f(out, p.frozen);
         }
         let b = &self.ball;
@@ -887,6 +916,7 @@ impl Sim {
         }
         out.push(self.overtime as u8);
         out.extend_from_slice(&self.events.to_le_bytes());
+        out.push(self.stadium);
     }
 
     pub fn from_bytes(data: &[u8]) -> Option<Sim> {
@@ -905,6 +935,7 @@ impl Sim {
             p.kick_kind = r.u()?;
             p.on_ground = r.u()? != 0;
             p.pkind = r.u()?;
+            p.look = r.u()?;
             p.frozen = r.f()?;
         }
         s.ball.x = r.f()?;
@@ -937,6 +968,7 @@ impl Sim {
         s.overtime = r.u()? != 0;
         let e = r.take(4)?;
         s.events = u32::from_le_bytes([e[0], e[1], e[2], e[3]]);
+        s.stadium = r.u()? % 3;
         Some(s)
     }
 }

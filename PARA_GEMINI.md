@@ -1,5 +1,9 @@
 # Para o Gemini: o que fazer no Cabecada
 
+> **Rodada atual: leia primeiro o `PARA_GEMINI_2.md`** (imagens novas dos botões e dos menus).
+> Este arquivo é da rodada anterior: boa parte das imagens daqui já foi feita e, da seção 4, já estão prontos
+> os personagens com atributos (item 1), salvar as configurações (item 6) e o jogo pela internet (item 10).
+
 Este arquivo diz o que já está pronto, o que ficou fraco ou faltando nas **imagens** e o que ainda falta no **código**.
 Pode mexer nas duas coisas. Leia primeiro a seção 2 (como testar) antes de alterar qualquer coisa.
 
@@ -87,16 +91,16 @@ Imagens atuais:
 
 Estas são ideias tiradas das strings do jogo original (veja `MECHANICS.md`). Ordem sugerida:
 
-1. **Personagens com atributos.** O original tem atributos por jogador (pulo, tamanho, chute, velocidade e poder). Criar uma tela de escolha de personagem e fazer cada atributo multiplicar `MOVE_SPEED`, `JUMP_SPEED`, a força do chute e a velocidade de carga do poder (hoje são constantes globais em `game.rs`). O personagem escolhido precisa ir pela rede (`T_HELLO` em `net.rs` e `to_bytes` / `from_bytes`).
+1. **(FEITO)** **Personagens com atributos.** O original tem atributos por jogador (pulo, tamanho, chute, velocidade e poder). Criar uma tela de escolha de personagem e fazer cada atributo multiplicar `MOVE_SPEED`, `JUMP_SPEED`, a força do chute e a velocidade de carga do poder (hoje são constantes globais em `game.rs`). O personagem escolhido precisa ir pela rede (`T_HELLO` em `net.rs` e `to_bytes` / `from_bytes`).
 2. **Duelo de pênaltis** (o original tem um modo "PenaltyDuel"): como modo novo ou como desempate no lugar do gol de ouro.
 3. **Personagem com corpo e perna animada** (depende da imagem do item 7 da seção 3.1).
 4. **Campeonato maior**: 8 times, adversário diferente em cada fase, troféu e salvar o progresso.
 5. **Tutorial** (o original tem passos de tutorial, por exemplo antes do chute alto).
-6. **Salvar as configurações** (poder, nível, tempo, som, botões na tela) num arquivo.
+6. **(FEITO)** **Salvar as configurações** (poder, nível, tempo, som, botões na tela) num arquivo.
 7. **Tela de escolha de poder** mais visual, com cartões e ícones (depende do item 1 da seção 3.1).
 8. **Replay** do melhor lance depois de um gol.
 9. **Física**: os números de `game.rs` são **estimados** (no original a gravidade parece vir de um servidor, não de constantes). Ajustar jogando os dois lado a lado.
-10. Jogo pela internet (hoje é só rede local, sem servidor).
+10. **(FEITO, beta)** Jogo pela internet: sala com código de 6 números, por um servidor MQTT público (`src/relay.rs`).
 
 ## 5. Cuidados
 

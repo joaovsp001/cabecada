@@ -5,6 +5,16 @@ use macroquad::prelude::*;
 
 pub const FONT_BYTES: &[u8] = include_bytes!("../assets/fonts/game.ttf");
 
+// Optional pictures (assets/ui/*.png) and music (assets/music/*), listed by build.rs.
+mod optional {
+    include!(concat!(env!("OUT_DIR"), "/optional_assets.rs"));
+}
+
+/// The bytes of an optional music file (`assets/music/<name>.ogg` or `.wav`), if it exists.
+pub fn music_bytes(name: &str) -> Option<&'static [u8]> {
+    optional::MUSIC.iter().find(|(n, _)| *n == name).map(|(_, b)| *b)
+}
+
 pub struct Assets {
     pub stadium_bgs: [Texture2D; 3],
     pub menu_bg: Texture2D,
@@ -35,6 +45,16 @@ pub struct Assets {
     pub btn_menu_gold: Texture2D,
     pub btn_menu_red: Texture2D,
     pub btn_menu_gray: Texture2D,
+    /// Optional pictures from `assets/ui/` by file name (see `ui`).
+    pub ui_map: std::collections::HashMap<&'static str, Texture2D>,
+}
+
+impl Assets {
+    /// An optional picture from `assets/ui/<name>.png`, or None when it was not made yet
+    /// (the caller then draws its own fallback).
+    pub fn ui(&self, name: &str) -> Option<&Texture2D> {
+        self.ui_map.get(name)
+    }
 }
 
 fn load_png(bytes: &'static [u8]) -> Texture2D {
@@ -109,6 +129,7 @@ impl Assets {
             btn_menu_gold: load_png(include_bytes!("../assets/btn_menu_gold.png")),
             btn_menu_red: load_png(include_bytes!("../assets/btn_menu_red.png")),
             btn_menu_gray: load_png(include_bytes!("../assets/btn_menu_gray.png")),
+            ui_map: optional::UI.iter().map(|(name, bytes)| (*name, load_png(bytes))).collect(),
         }
     }
 }

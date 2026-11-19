@@ -1,0 +1,5 @@
+Música opcional.
+
+menu.ogg (ou menu.wav): música dos menus, tocada em loop. Só use música criada por você ou com
+licença livre (CC0). Sem o arquivo, o jogo cria uma música curta por código (src/music.rs).
+O volume é ajustado em Configurações > Música.

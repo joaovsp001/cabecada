@@ -6,10 +6,16 @@ mod ai;
 mod assets;
 mod audio;
 mod game;
+mod music;
 mod net;
 mod platform;
+mod relay;
 mod selftest;
+mod settings;
+mod ui;
 mod win;
+
+use ui::SetupKind;
 
 use game::*;
 use macroquad::prelude::*;
@@ -284,9 +290,18 @@ pub enum Btn {
 pub struct TouchBtn {
     pub who: usize,
     pub kind: Btn,
-    pub x: f32,
+    pub x: f32, // centre
     pub y: f32,
-    pub r: f32,
+    pub w: f32,
+    pub h: f32,
+}
+
+impl TouchBtn {
+    /// A finger at (x, y) presses it: a little extra room above and below, but less than
+    /// half the gap at the sides, so one finger never presses two neighbours.
+    pub fn hit(&self, x: f32, y: f32) -> bool {
+        (x - self.x).abs() < self.w * 0.5 + 3.5 && (y - self.y).abs() < self.h * 0.5 + 22.0
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -297,30 +312,57 @@ pub enum Mode {
     Client,
 }
 
-pub fn touch_layout(mode: Mode) -> Vec<TouchBtn> {
+/// Where the on-screen buttons go, like Head Ball 2: one row along the bottom of the
+/// real screen (not of the 16:9 picture), the two arrows on the left and kick, high kick,
+/// jump and power on the right. Positions are fractions of the screen width measured on
+/// the original game; sizes follow the screen height (scaled by the size setting).
+pub fn touch_layout(mode: Mode, scale: f32) -> Vec<TouchBtn> {
+    let (s, ox, oy) = view();
+    let left = -ox / s;
+    let right = W + ox / s;
+    let bottom = H + oy / s;
+    let width = right - left;
     let mut v = vec![];
-    let b = |who, kind, x, y, r| TouchBtn { who, kind, x, y, r };
     match mode {
         Mode::Local2 => {
+            // each player gets half of the screen, mirrored, all in one row: the arrows at
+            // the outer edge, then kick, high kick, jump and power towards the middle
+            let bw = (133.0 * scale * 0.82).min((width * 0.5 - 68.0) / 5.69);
+            let bh = bw * 92.0 / 133.0;
+            let y = bottom - 14.0 - bh * 0.5;
             for who in 0..2 {
-                let m = |x: f32| if who == 0 { x } else { W - x };
-                let (lx, rx) = if who == 0 { (55.0, 150.0) } else { (W - 150.0, W - 55.0) };
-                v.push(b(who, Btn::Left, lx, 662.0, 44.0));
-                v.push(b(who, Btn::Right, rx, 662.0, 44.0));
-                v.push(b(who, Btn::Kick, m(265.0), 662.0, 46.0));
-                v.push(b(who, Btn::Lob, m(370.0), 672.0, 36.0));
-                v.push(b(who, Btn::Jump, m(265.0), 560.0, 40.0));
-                v.push(b(who, Btn::Power, m(370.0), 590.0, 32.0));
+                let (outer, inner) = if who == 0 { (Btn::Left, Btn::Right) } else { (Btn::Right, Btn::Left) };
+                let mut pos = 18.0; // from the screen edge to the next button
+                for (kind, w) in [(outer, bw), (inner, bw), (Btn::Kick, bw), (Btn::Lob, bw), (Btn::Jump, bw), (Btn::Power, bh)] {
+                    let c = pos + w * 0.5;
+                    let x = if who == 0 { left + c } else { right - c };
+                    v.push(TouchBtn { who, kind, x, y, w, h: bh });
+                    pos += w + 8.0;
+                }
             }
         }
         _ => {
             let who = if mode == Mode::Client { 1 } else { 0 };
-            v.push(b(who, Btn::Left, 95.0, 640.0, 62.0));
-            v.push(b(who, Btn::Right, 240.0, 640.0, 62.0));
-            v.push(b(who, Btn::Kick, 1182.0, 632.0, 64.0));
-            v.push(b(who, Btn::Lob, 1045.0, 660.0, 50.0));
-            v.push(b(who, Btn::Jump, 1182.0, 490.0, 54.0));
-            v.push(b(who, Btn::Power, 1050.0, 530.0, 42.0));
+            let bw = 133.0 * scale; // the original buttons are a bit wider than tall
+            let bh = 92.0 * scale;
+            let y = bottom - 18.0 - bh * 0.5;
+            let kinds = [Btn::Left, Btn::Right, Btn::Kick, Btn::Lob, Btn::Jump, Btn::Power];
+            let ws = [bw, bw, bw, bw, bw, bh];
+            // centres measured on the original, as fractions of the screen width
+            let mut xs = [0.184f32, 0.342, 0.561, 0.676, 0.789, 0.905].map(|f| left + width * f);
+            // keep them apart and inside the screen, whatever its shape and the size setting
+            let gap = |i: usize| if i == 2 { 40.0 } else { 12.0 }; // space before button i
+            xs[0] = xs[0].max(left + 16.0 + ws[0] * 0.5);
+            for i in 1..6 {
+                xs[i] = xs[i].max(xs[i - 1] + (ws[i - 1] + ws[i]) * 0.5 + gap(i));
+            }
+            xs[5] = xs[5].min(right - 16.0 - ws[5] * 0.5);
+            for i in (0..5).rev() {
+                xs[i] = xs[i].min(xs[i + 1] - (ws[i] + ws[i + 1]) * 0.5 - gap(i + 1));
+            }
+            for i in 0..6 {
+                v.push(TouchBtn { who, kind: kinds[i], x: xs[i], y, w: ws[i], h: bh });
+            }
         }
     }
     v
@@ -385,8 +427,14 @@ fn keys_single() -> Input {
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Screen {
     Menu,
+    Multi,
+    Setup,
+    Settings,
+    ButtonTest,
     HostLobby,
     JoinLobby,
+    OnlineHost,
+    OnlineJoin,
     Match,
 }
 
@@ -432,8 +480,6 @@ pub struct App {
     pub sim: Sim,
     pub ai: [ai::AiMem; 2],
     pub ai_both: bool,
-    pub level: usize,
-    pub len_idx: usize,
     pub host: Option<net::Host>,
     pub client: Option<net::Client>,
     acc: f32,
@@ -441,7 +487,6 @@ pub struct App {
     paused: bool,
     over_t: f32,
     sounds: Option<audio::Sounds>,
-    sound_on: bool,
     ip_text: String,
     status: String,
     connect_t: f64,
@@ -453,15 +498,19 @@ pub struct App {
     pub held: [Input; 2],
     lost: bool,
     assets: assets::Assets,
-    pub my_power: u8, // PK_* or POWER_KINDS for "random"
     pub touch_ui: bool, // on-screen buttons (always on phones, after the first touch elsewhere, or with T)
     prev_ground: [bool; 2],
     prev_kick: [bool; 2],
     tour: Option<Tour>,
     crowd_on: bool,
     fx: Vec<AnimFx>,
-    char_idx: [usize; 2],
-    stadium_idx: usize,
+    pub set: settings::Settings, // saved choices (volumes, buttons, last match options)
+    setup: SetupKind,            // what the setup screen is preparing
+    settings_back: Screen,       // where "Voltar" leaves the settings screen
+    room_code: String,           // online room being hosted
+    code_text: String,           // online room code being typed
+    music: Option<macroquad::audio::Sound>,
+    music_on: bool,
     quit_ask: bool,     // the "leave the game?" box is open
     events_sub: usize,  // macroquad input subscriber, to hear when the app goes to the background
 }
@@ -473,18 +522,16 @@ struct Tour {
 }
 const TOUR_ROUNDS: [(&str, usize); 3] = [("Quartas de final", 0), ("Semifinal", 1), ("Final", 2)];
 
-const LEVEL_NAMES: [&str; 3] = ["Fácil", "Normal", "Difícil"];
+pub const LEVEL_NAMES: [&str; 3] = ["Fácil", "Normal", "Difícil"];
 
 impl App {
-    fn new(sounds: Option<audio::Sounds>, assets: assets::Assets) -> App {
+    fn new(sounds: Option<audio::Sounds>, music: Option<macroquad::audio::Sound>, assets: assets::Assets) -> App {
         App {
             screen: Screen::Menu,
             mode: Mode::Cpu,
             sim: Sim::new(90.0),
             ai: [ai::AiMem { rng: 77, ..Default::default() }, ai::AiMem { rng: 991, ..Default::default() }],
             ai_both: false,
-            level: 1,
-            len_idx: 1,
             host: None,
             client: None,
             acc: 0.0,
@@ -492,7 +539,6 @@ impl App {
             paused: false,
             over_t: 0.0,
             sounds,
-            sound_on: true,
             ip_text: String::new(),
             status: String::new(),
             connect_t: 0.0,
@@ -504,15 +550,19 @@ impl App {
             held: [Input::default(); 2],
             lost: false,
             assets,
-            my_power: POWER_KINDS,
             touch_ui: cfg!(target_os = "android"),
             prev_ground: [true; 2],
             prev_kick: [false; 2],
             tour: None,
             crowd_on: false,
             fx: vec![],
-            char_idx: [0, 1],
-            stadium_idx: 0,
+            set: settings::Settings::load(),
+            setup: SetupKind::VsCpu,
+            settings_back: Screen::Menu,
+            room_code: String::new(),
+            code_text: String::new(),
+            music,
+            music_on: false,
             quit_ask: false,
             events_sub: macroquad::input::utils::register_input_subscriber(),
         }
@@ -531,7 +581,7 @@ impl App {
     /// The picture behind the current screen (also used to fill the sides of wide phones).
     fn backdrop_tex(&self) -> &Texture2D {
         if self.screen == Screen::Match && !self.champion_showing() {
-            &self.assets.stadium_bgs[self.stadium_idx % self.assets.stadium_bgs.len()]
+            &self.assets.stadium_bgs[self.sim.stadium as usize % self.assets.stadium_bgs.len()]
         } else {
             &self.assets.menu_bg
         }
@@ -541,13 +591,13 @@ impl App {
     fn cpu_level(&self) -> usize {
         match self.tour {
             Some(t) => TOUR_ROUNDS[t.round.min(2)].1,
-            None => self.level,
+            None => self.set.level as usize,
         }
     }
 
     pub fn start_match(&mut self, mode: Mode) {
         self.mode = mode;
-        self.sim = Sim::new(MATCH_LENGTHS[self.len_idx]);
+        self.sim = Sim::new(MATCH_LENGTHS[self.set.len_idx as usize % MATCH_LENGTHS.len()]);
         self.screen = Screen::Match;
         self.paused = false;
         self.over_t = 0.0;
@@ -560,14 +610,25 @@ impl App {
         if mode != Mode::Cpu {
             self.tour = None; // the cup is only against the computer
         }
+        // faces and attributes: yours from the setup; the opponent's from the setup, the cup
+        // round, or the other device (sent in its hello)
+        let me = self.set.look % 6;
+        let mut other = self.set.look2 % 6;
+        let mut stadium = self.set.stadium % 3;
         if let Some(t) = self.tour {
             let r = t.round.min(2);
-            self.stadium_idx = r;
-            let boss = [1usize, 3, 5][r];
-            self.char_idx[1] = if boss == self.char_idx[0] { (boss + 1) % 6 } else { boss };
-        } else if self.char_idx[1] == self.char_idx[0] {
-            self.char_idx[1] = (self.char_idx[0] + 1) % 6;
+            stadium = r as u8;
+            let boss = [1u8, 3, 5][r];
+            other = if boss == me { (boss + 1) % 6 } else { boss };
+        } else if other == me && mode != Mode::Host {
+            other = (me + 1) % 6;
         }
+        if mode == Mode::Host {
+            other = self.host.as_ref().map(|h| h.remote_look % 6).unwrap_or(other);
+        }
+        self.sim.p[0].look = me;
+        self.sim.p[1].look = other;
+        self.sim.stadium = stadium; // a guest gets it with the match state
         // each player brings a power (random when "Aleatório" is chosen)
         let mine = self.pick_power();
         let other = rand::gen_range(0, POWER_KINDS as u32) as u8;
@@ -585,18 +646,10 @@ impl App {
     }
 
     fn pick_power(&self) -> u8 {
-        if self.my_power >= POWER_KINDS {
+        if self.set.power >= POWER_KINDS {
             rand::gen_range(0, POWER_KINDS as u32) as u8
         } else {
-            self.my_power
-        }
-    }
-
-    fn power_label(&self) -> String {
-        if self.my_power >= POWER_KINDS {
-            "Poder: Aleatório".into()
-        } else {
-            format!("Poder: {}", POWER_NAMES[self.my_power as usize])
+            self.set.power
         }
     }
 
@@ -628,16 +681,22 @@ impl App {
 
     fn gather_input(&mut self) -> [Input; 2] {
         let mut inp = [Input::default(); 2];
-        if !touches().is_empty() {
-            self.touch_ui = true; // a finger on the screen: show the on-screen buttons
-        }
-        if is_key_pressed(KeyCode::T) {
-            self.touch_ui = !self.touch_ui;
+        match self.set.touch_mode {
+            1 => self.touch_ui = true,
+            2 if !cfg!(target_os = "android") => self.touch_ui = false,
+            _ => {
+                if !touches().is_empty() {
+                    self.touch_ui = true; // a finger on the screen: show the on-screen buttons
+                }
+                if is_key_pressed(KeyCode::T) {
+                    self.touch_ui = !self.touch_ui;
+                }
+            }
         }
         if self.touch_ui {
             let pts = pointers();
-            for b in touch_layout(self.mode) {
-                if pts.iter().any(|&(x, y)| (x - b.x).powi(2) + (y - b.y).powi(2) < (b.r * 1.2).powi(2)) {
+            for b in touch_layout(self.mode, self.btn_scale()) {
+                if pts.iter().any(|&(x, y)| b.hit(x, y)) {
                     set_btn(&mut inp[b.who], b.kind);
                 }
             }
@@ -691,8 +750,9 @@ impl App {
                 self.burst(self.sim.ball.x, self.sim.ball.y, 12, c);
             }
         }
+        let g = self.sfx_gain();
         let Some(s) = self.sounds.as_ref() else { return };
-        if !self.sound_on {
+        if g <= 0.0 {
             return;
         }
         let list = [
@@ -712,7 +772,7 @@ impl App {
         ];
         for (bit, snd, vol) in list {
             if ev & bit != 0 {
-                s.play(snd, vol);
+                s.play(snd, vol * g);
             }
         }
     }
@@ -776,21 +836,65 @@ impl App {
     }
 
     fn play_one(&self, pick: impl Fn(&audio::Sounds) -> (&macroquad::audio::Sound, f32)) {
-        if !self.sound_on {
+        let g = self.sfx_gain();
+        if g <= 0.0 {
             return;
         }
         if let Some(s) = self.sounds.as_ref() {
             let (snd, vol) = pick(s);
-            s.play(snd, vol);
+            s.play(snd, vol * g);
+        }
+    }
+
+    /// Sound effects volume, 0..1.
+    pub fn sfx_gain(&self) -> f32 {
+        self.set.sfx as f32 / 10.0
+    }
+
+    /// On-screen button size, 0.7..1.5.
+    pub fn btn_scale(&self) -> f32 {
+        self.set.btn_scale as f32 / 100.0
+    }
+
+    /// Puts the volume settings on the sounds that are already playing.
+    pub fn apply_volumes(&mut self) {
+        if let Some(s) = self.sounds.as_ref() {
+            if self.crowd_on {
+                macroquad::audio::set_sound_volume(&s.crowd, 0.12 * self.sfx_gain());
+            }
+        }
+        if let Some(m) = self.music.as_ref() {
+            if self.music_on {
+                macroquad::audio::set_sound_volume(m, self.music_volume());
+            }
+        }
+    }
+
+    fn music_volume(&self) -> f32 {
+        self.set.music as f32 / 10.0 * 0.55
+    }
+
+    /// Menu music: plays outside matches when its volume is above zero.
+    fn update_music(&mut self) {
+        let want = !self.in_match() && self.set.music > 0;
+        if let Some(m) = self.music.as_ref() {
+            if want && !self.music_on {
+                macroquad::audio::play_sound(m, macroquad::audio::PlaySoundParams { looped: true, volume: self.music_volume() });
+                self.music_on = true;
+            } else if !want && self.music_on {
+                macroquad::audio::stop_sound(m);
+                self.music_on = false;
+            }
         }
     }
 
     /// Crowd murmur while a match is on.
     fn crowd(&mut self, want: bool) {
-        let want = want && self.sound_on;
+        let want = want && self.set.sfx > 0;
+        let g = self.sfx_gain();
         if let Some(s) = self.sounds.as_ref() {
             if want && !self.crowd_on {
-                s.play_loop(&s.crowd, 0.12);
+                s.play_loop(&s.crowd, 0.12 * g);
                 self.crowd_on = true;
             } else if !want && self.crowd_on {
                 s.stop(&s.crowd);
@@ -901,7 +1005,7 @@ impl App {
         self.ai_both = false;
         self.particles.clear();
         self.shake = 0.0;
-        self.touch_ui = name == "play_touch";
+        self.touch_ui = name.ends_with("touch");
         self.tour = match name {
             "countdown_tour" => Some(Tour { round: 1 }),
             "champion" => Some(Tour { round: 2 }),
@@ -910,6 +1014,31 @@ impl App {
         };
         match name {
             "menu" => self.screen = Screen::Menu,
+            "multi" => self.screen = Screen::Multi,
+            "setup_cpu" | "setup_cup" | "setup_local2" | "setup_lan_host" | "setup_online_host" | "setup_online_join" => {
+                self.setup = match name {
+                    "setup_cpu" => SetupKind::VsCpu,
+                    "setup_cup" => SetupKind::Cup,
+                    "setup_local2" => SetupKind::Local2,
+                    "setup_lan_host" => SetupKind::LanHost,
+                    "setup_online_host" => SetupKind::OnlineHost,
+                    _ => SetupKind::OnlineJoin,
+                };
+                self.screen = Screen::Setup;
+            }
+            "settings" => {
+                self.settings_back = Screen::Menu;
+                self.screen = Screen::Settings;
+            }
+            "button_test" => self.screen = Screen::ButtonTest,
+            "online_join" => {
+                self.code_text = "4829".into();
+                self.screen = Screen::OnlineJoin;
+            }
+            "online_host" => {
+                self.room_code = "482913".into();
+                self.screen = Screen::OnlineHost;
+            }
             "host_lobby" => {
                 self.my_ip = "192.168.0.12".into();
                 self.screen = Screen::HostLobby;
@@ -919,9 +1048,9 @@ impl App {
                 self.screen = Screen::JoinLobby;
             }
             _ => {
-                let mode = if name == "play_local2" { Mode::Local2 } else { Mode::Cpu };
-                self.my_power = PK_FIRE;
-                self.level = 2;
+                let mode = if name.starts_with("play_local2") { Mode::Local2 } else { Mode::Cpu };
+                self.set.power = PK_FIRE;
+                self.set.level = 2;
                 self.start_match(mode);
                 self.ai_both = name == "play_cpu" || name == "play_touch";
                 self.sim.phase = Phase::Play;
@@ -1005,15 +1134,12 @@ impl App {
     /// One frame of a `--shots` scene: no real input, fixed time step.
     fn scene_frame(&mut self, dt: f32) {
         self.now += dt as f64;
-        match self.screen {
-            Screen::Menu => self.menu(),
-            Screen::HostLobby => self.host_lobby(),
-            Screen::JoinLobby => self.join_lobby(),
-            Screen::Match => {
-                self.update_match(dt, [Input::default(); 2]);
-                self.draw_match();
-                self.match_overlays();
-            }
+        if self.screen == Screen::Match {
+            self.update_match(dt, [Input::default(); 2]);
+            self.draw_match();
+            self.match_overlays();
+        } else {
+            self.screen_frame(dt);
         }
     }
 
@@ -1030,11 +1156,28 @@ impl App {
         set_view();
         clear_background(hex(0x0b1022));
         draw_side_fill(self.backdrop_tex());
-        self.crowd(self.screen == Screen::Match);
+        self.crowd(self.in_match());
+        self.update_music();
+        self.screen_frame(dt);
+    }
+
+    /// A match is on (also while its settings are open from the pause box).
+    fn in_match(&self) -> bool {
+        self.screen == Screen::Match || (matches!(self.screen, Screen::Settings | Screen::ButtonTest) && self.settings_back == Screen::Match)
+    }
+
+    /// Draws and runs the current screen.
+    fn screen_frame(&mut self, dt: f32) {
         match self.screen {
             Screen::Menu => self.menu(),
+            Screen::Multi => self.multi(),
+            Screen::Setup => self.setup_screen(),
+            Screen::Settings => self.settings_screen(),
+            Screen::ButtonTest => self.button_test(),
             Screen::HostLobby => self.host_lobby(),
             Screen::JoinLobby => self.join_lobby(),
+            Screen::OnlineHost => self.online_host_lobby(),
+            Screen::OnlineJoin => self.online_join(),
             Screen::Match => {
                 let inp = self.gather_input();
                 self.update_match(dt, inp);
@@ -1114,105 +1257,10 @@ impl App {
         }
     }
 
-    fn menu_main(&mut self) {
-        tex_draw(&self.assets.menu_bg, 0.0, 0.0, W, H, WHITE, false, 0.0);
-        rectv(0.0, 0.0, W, H, with_a(hex(0x080d1e), 0.22));
-        let version = concat!("v", env!("CARGO_PKG_VERSION"));
-        text(version, 1272.0 - text_w(version, 16.0), 712.0, 16.0, with_a(WHITE, 0.55));
-        // title logo and showcase characters
-        let t = self.now as f32;
-        let bob1 = (t * 2.8).sin() * 6.0;
-        let bob2 = (t * 2.8 + 1.6).sin() * 6.0;
-        // Player 1 showcase (left)
-        let c0 = self.char_idx[0] % 6;
-        let c1 = self.char_idx[1] % 6;
-        ellipse(190.0, 512.0, 58.0, 14.0, with_a(BLACK, 0.35));
-        tex_center(&self.assets.boots[c0], 198.0, 488.0 + bob1 * 0.3, 96.0, 64.0, WHITE, false, -0.05);
-        tex_center(&self.assets.heads[c0], 190.0, 404.0 + bob1, 168.0, 168.0, WHITE, false, (t * 1.4).sin() * 0.04);
-        if self.button(&format!("Jogador: #{}", c0 + 1), 85.0, 536.0, 210.0, 44.0, hex(0x2d6fd0)) {
-            self.char_idx[0] = (self.char_idx[0] + 1) % 6;
-            if self.char_idx[1] == self.char_idx[0] {
-                self.char_idx[1] = (self.char_idx[0] + 1) % 6;
-            }
-        }
-        // Player 2 showcase (right)
-        ellipse(1090.0, 512.0, 58.0, 14.0, with_a(BLACK, 0.35));
-        tex_center(&self.assets.boots[c1], 1082.0, 488.0 + bob2 * 0.3, 96.0, 64.0, WHITE, true, 0.05);
-        tex_center(&self.assets.heads[c1], 1090.0, 404.0 + bob2, 168.0, 168.0, WHITE, true, -(t * 1.4).sin() * 0.04);
-        let stad_names = ["Noite", "Pôr do Sol", "Final"];
-        if self.button(&format!("Estádio: {}", stad_names[self.stadium_idx % 3]), 985.0, 536.0, 210.0, 44.0, hex(0x34405e)) {
-            self.stadium_idx = (self.stadium_idx + 1) % 3;
-        }
-
-        tex_center(&self.assets.logo, 640.0, 130.0 + (t * 2.2).sin() * 4.0, 470.0, 235.0, WHITE, false, 0.0);
-        rrect(290.0, 236.0, 700.0, 34.0, 17.0, with_a(BLACK, 0.5));
-        text_o("futebol de cabeça 1 contra 1  -  sem internet, sem servidor", 640.0, 261.0, 22.0, hex(0xe4f0ff));
-
-        let bx = 390.0;
-        let bw = 500.0;
-        let bh = 58.0;
-        if self.button("Contra o computador", bx, 284.0, bw, bh, hex(0x2f8f4e)) {
-            self.tour = None;
-            self.start_match(Mode::Cpu);
-            return;
-        }
-        if self.button("Campeonato (3 fases)", bx, 350.0, bw, bh, hex(0xc9951a)) {
-            self.tour = Some(Tour { round: 0 });
-            self.start_match(Mode::Cpu);
-            return;
-        }
-        if self.button("2 jogadores neste aparelho", bx, 416.0, bw, bh, hex(0x2d6fd0)) {
-            self.start_match(Mode::Local2);
-            return;
-        }
-        if self.button("Criar partida (rede local)", bx, 482.0, bw, bh, hex(0xd06a2d)) {
-            let ip = net::local_ip().map(|i| i.to_string()).unwrap_or_else(|| "sem rede".into());
-            let name = format!("Partida {}", ip);
-            let h = net::Host::new(net::PORT, &name).or_else(|_| net::Host::new(0, &name));
-            match h {
-                Ok(h) => {
-                    self.my_ip = if h.port == net::PORT { ip } else { format!("{}:{}", ip, h.port) };
-                    self.host = Some(h);
-                    self.screen = Screen::HostLobby;
-                }
-                Err(e) => self.status = format!("Não foi possível abrir a partida: {}", e),
-            }
-            return;
-        }
-        if self.button("Entrar em partida (rede local)", bx, 548.0, bw, bh, hex(0x8a3fc0)) {
-            match net::Client::new() {
-                Ok(mut c) => {
-                    c.pkind = self.pick_power();
-                    self.client = Some(c);
-                    self.status.clear();
-                    self.screen = Screen::JoinLobby;
-                }
-                Err(e) => self.status = format!("Rede indisponível: {}", e),
-            }
-            return;
-        }
-        let small = hex(0x34405e);
-        let label = self.power_label();
-        if self.button(&label, 40.0, 618.0, 330.0, 52.0, hex(0x8a5a10)) {
-            self.my_power = (self.my_power + 1) % (POWER_KINDS + 1);
-        }
-        if self.button(&format!("Computador: {}", LEVEL_NAMES[self.level]), 385.0, 618.0, 290.0, 52.0, small) {
-            self.level = (self.level + 1) % 3;
-        }
-        if self.button(&format!("Tempo: {} s", MATCH_LENGTHS[self.len_idx] as i32), 690.0, 618.0, 250.0, 52.0, small) {
-            self.len_idx = (self.len_idx + 1) % 3;
-        }
-        if self.button(if self.sound_on { "Som: ligado" } else { "Som: desligado" }, 955.0, 618.0, 285.0, 52.0, small) {
-            self.sound_on = !self.sound_on;
-        }
-        if !self.status.is_empty() {
-            text_o(&self.status, 640.0, 700.0, 22.0, hex(0xff8080));
-        }
-    }
-
     fn host_lobby(&mut self) {
         if is_key_pressed(KeyCode::Back) || is_key_pressed(KeyCode::Escape) {
-            self.to_menu();
+            self.leave_network();
+            self.screen = Screen::Multi;
             return;
         }
         self.draw_backdrop();
@@ -1238,13 +1286,15 @@ impl App {
             return;
         }
         if self.button("Voltar", 490.0, 580.0, 300.0, 64.0, hex(0x5a2d3a)) {
-            self.to_menu();
+            self.leave_network();
+            self.screen = Screen::Multi;
         }
     }
 
     fn join_lobby(&mut self) {
         if is_key_pressed(KeyCode::Back) || is_key_pressed(KeyCode::Escape) {
-            self.to_menu();
+            self.leave_network();
+            self.screen = Screen::Multi;
             return;
         }
         self.draw_backdrop();
@@ -1333,7 +1383,8 @@ impl App {
             text_o(&self.status, 640.0, 615.0, 24.0, hex(0xffd0a0));
         }
         if self.button("Voltar", 490.0, 640.0, 300.0, 60.0, hex(0x5a2d3a)) {
-            self.to_menu();
+            self.leave_network();
+            self.screen = Screen::Multi;
         }
     }
 
@@ -1389,7 +1440,8 @@ impl App {
                         h.peer = None;
                     }
                     self.lost = false;
-                    self.screen = Screen::HostLobby;
+                    let online = self.host.as_ref().and_then(|h| h.link()).is_some();
+                    self.screen = if online { Screen::OnlineHost } else { Screen::HostLobby };
                     return;
                 }
                 if self.button("Menu", 660.0, 380.0, 280.0, 64.0, hex(0x5a2d3a)) {
@@ -1410,7 +1462,12 @@ impl App {
             if self.button("Continuar", 490.0, 330.0, 300.0, 64.0, hex(0x2f8f4e)) || is_key_pressed(KeyCode::Escape) || back {
                 self.paused = false;
             }
-            if self.button("Sair para o menu", 490.0, 415.0, 300.0, 64.0, hex(0x5a2d3a)) {
+            let local = matches!(self.mode, Mode::Cpu | Mode::Local2);
+            if local && self.button("Configurações", 490.0, 415.0, 300.0, 64.0, hex(0x34405e)) {
+                self.open_settings(Screen::Match);
+                return;
+            }
+            if self.button("Sair para o menu", 490.0, if local { 500.0 } else { 415.0 }, 300.0, 64.0, hex(0x5a2d3a)) {
                 self.to_menu();
             }
             return;
@@ -1493,7 +1550,7 @@ impl App {
         tex_draw(&self.assets.menu_bg, 0.0, 0.0, W, H, WHITE, false, 0.0);
         rectv(0.0, 0.0, W, H, with_a(hex(0x080d1e), 0.18));
         let t = self.now as f32;
-        let c0 = self.char_idx[0] % 6;
+        let c0 = self.sim.p[0].look as usize % 6;
         // 3-stage cup bracket ribbon
         rrect(310.0, 224.0, 660.0, 44.0, 22.0, with_a(BLACK, 0.55));
         text_o("Quartas  OK        Semifinal  OK        Final  OK", 640.0, 254.0, 22.0, hex(0xffe14a));
@@ -1527,7 +1584,7 @@ impl App {
     // ------------------------------------------------------------ match drawing
 
     fn draw_field(&self, live: bool) {
-        let bg = &self.assets.stadium_bgs[self.stadium_idx % self.assets.stadium_bgs.len()];
+        let bg = &self.assets.stadium_bgs[self.sim.stadium as usize % self.assets.stadium_bgs.len()];
         tex_draw(bg, 0.0, 0.0, W, H, WHITE, false, 0.0);
         if live && (self.sim.phase == Phase::Goal || self.sim.phase == Phase::Over) {
             let t = self.now as f32;
@@ -1548,7 +1605,7 @@ impl App {
         let p = self.sim.p[i];
         let s = p.side;
         let flip = s < 0.0;
-        let cid = self.char_idx[i] % 6;
+        let cid = self.sim.p[i].look as usize % 6;
         let head_tex = &self.assets.heads[cid];
         let boot_tex = &self.assets.boots[cid];
         let x = p.x;
@@ -1787,8 +1844,8 @@ impl App {
                 if sim.score == [0, 0] {
                     rrect(250.0, 196.0, 780.0, 164.0, 24.0, with_a(BLACK, 0.5));
                     let bob = (self.now as f32 * 4.0).sin() * 3.0;
-                    tex_center(&self.assets.heads[self.char_idx[0] % 6], 400.0, 266.0 + bob, 124.0, 124.0, WHITE, false, 0.0);
-                    tex_center(&self.assets.heads[self.char_idx[1] % 6], 880.0, 266.0 - bob, 124.0, 124.0, WHITE, true, 0.0);
+                    tex_center(&self.assets.heads[sim.p[0].look as usize % 6], 400.0, 266.0 + bob, 124.0, 124.0, WHITE, false, 0.0);
+                    tex_center(&self.assets.heads[sim.p[1].look as usize % 6], 880.0, 266.0 - bob, 124.0, 124.0, WHITE, true, 0.0);
                     text_o("VS", 640.0, 288.0, 84.0, hex(0xffd34d));
                     if let Some(t) = self.tour {
                         text_o(TOUR_ROUNDS[t.round.min(2)].0, 640.0, 330.0, 24.0, WHITE);
@@ -1845,8 +1902,17 @@ impl App {
             self.draw_controls_hint();
             return;
         }
+        self.draw_buttons_for(self.mode);
+        self.hud.buttons = true;
+    }
+
+    /// The on-screen buttons of `mode`, with the size and opacity from the settings.
+    /// Uses the Head Ball 2-shaped pictures `assets/ui/ctrl_*.png` when they exist, and
+    /// the square button pictures otherwise.
+    pub(crate) fn draw_buttons_for(&self, mode: Mode) {
         let t = self.now as f32;
-        for b in touch_layout(self.mode) {
+        let alpha = self.set.btn_alpha as f32 / 100.0;
+        for b in touch_layout(mode, self.btn_scale()) {
             let inp = self.held[b.who];
             let down = match b.kind {
                 Btn::Left => inp.left,
@@ -1858,29 +1924,39 @@ impl App {
             };
             let p = self.sim.p[b.who];
             let ready = p.power >= 1.0 || p.power_ready > 0.0;
-            let (tex, flip) = match b.kind {
-                Btn::Left => (&self.assets.btn_left, false),
-                Btn::Right => (&self.assets.btn_left, true),
-                Btn::Kick => (&self.assets.btn_kick, b.who == 1),
-                Btn::Lob => (&self.assets.btn_lob, b.who == 1),
-                Btn::Jump => (&self.assets.btn_jump, b.who == 1),
-                Btn::Power => (&self.assets.btn_powers[(p.pkind as usize) % 6], false),
+            let mirror = b.who == 1 && mode == Mode::Local2;
+            // the Head Ball 2-shaped pictures, when they exist: (picture, mirrored)
+            let ui = |name: &str, flip: bool| self.assets.ui(name).map(|t| (t, flip));
+            let wide = match b.kind {
+                Btn::Left => ui("ctrl_left", false),
+                Btn::Right => ui("ctrl_right", false).or_else(|| ui("ctrl_left", true)),
+                Btn::Kick => ui("ctrl_kick", mirror),
+                Btn::Lob => ui("ctrl_lob", mirror),
+                Btn::Jump => ui("ctrl_jump", mirror),
+                Btn::Power => None,
             };
-            let pulse = if b.kind == Btn::Power && ready {
-                1.0 + 0.06 * (t * 8.0).sin()
-            } else {
-                1.0
-            };
-            let scale = if down { 0.90 } else { 1.0 } * pulse;
-            let sz = b.r * 2.05 * scale;
+            let pulse = if b.kind == Btn::Power && ready { 1.0 + 0.06 * (t * 8.0).sin() } else { 1.0 };
+            let k = if down { 0.92 } else { 1.0 } * pulse;
             let tint = match b.kind {
-                Btn::Power if !ready => Color::new(0.45, 0.45, 0.48, 0.62),
-                _ if down => WHITE,
-                _ => Color::new(1.0, 1.0, 1.0, 0.88),
+                Btn::Power if !ready => Color::new(0.45, 0.45, 0.48, 0.65 * alpha),
+                _ if down => Color::new(1.0, 1.0, 1.0, alpha.max(0.85)),
+                _ => Color::new(1.0, 1.0, 1.0, alpha),
             };
-            tex_center(tex, b.x, b.y, sz, sz, tint, flip, 0.0);
+            if let Some((tex, flip)) = wide {
+                tex_center(tex, b.x, b.y, b.w * k, b.h * k, tint, flip, 0.0);
+            } else {
+                let (tex, flip) = match b.kind {
+                    Btn::Left => (&self.assets.btn_left, false),
+                    Btn::Right => (&self.assets.btn_left, true),
+                    Btn::Kick => (&self.assets.btn_kick, mirror),
+                    Btn::Lob => (&self.assets.btn_lob, mirror),
+                    Btn::Jump => (&self.assets.btn_jump, mirror),
+                    Btn::Power => (&self.assets.btn_powers[(p.pkind as usize) % 6], false),
+                };
+                let sz = b.h * 1.08 * k;
+                tex_center(tex, b.x, b.y, sz, sz, tint, flip, 0.0);
+            }
         }
-        self.hud.buttons = true;
     }
 }
 
@@ -1898,10 +1974,16 @@ fn star(x: f32, y: f32, r: f32, c: Color) {
 // ---------------------------------------------------------------- start-up
 
 fn conf() -> Conf {
+    // `--size 1600x720`: another window shape, to see how wide phones or tablets look
+    let size = std::env::args().skip_while(|a| a != "--size").nth(1).and_then(|s| {
+        let (w, h) = s.split_once('x')?;
+        Some((w.parse().ok()?, h.parse().ok()?))
+    });
+    let (w, h) = size.unwrap_or((1280, 720));
     Conf {
         window_title: "Cabeçada".to_owned(),
-        window_width: 1280,
-        window_height: 720,
+        window_width: w,
+        window_height: h,
         high_dpi: cfg!(target_os = "android"),
         window_resizable: true,
         // miniquad's Android code stops the app if the phone has no graphics mode with
@@ -1944,7 +2026,11 @@ async fn amain(run: Run, prev_fg: isize) {
     load_game_font();
     let assets = assets::Assets::load();
     platform::log("pictures loaded");
-    let mut app = App::new(sounds, assets);
+    let music = if quiet { None } else { macroquad::audio::load_sound_from_bytes(&music::menu_track()).await.ok() };
+    let mut app = App::new(sounds, music, assets);
+    if quiet {
+        app.set = settings::Settings::default();
+    }
     platform::log("menu");
     match run {
         Run::Normal => loop {
@@ -1954,7 +2040,7 @@ async fn amain(run: Run, prev_fg: isize) {
         },
         Run::Screenshot(path) => {
             app.ai_both = true;
-            app.level = 2;
+            app.set.level = 2;
             app.start_match(Mode::Cpu);
             app.sim.phase = Phase::Play;
             app.sim.time_left = 74.0;
@@ -1986,12 +2072,20 @@ async fn amain(run: Run, prev_fg: isize) {
             // `--shots <folder>`: one picture of every screen and power, to check how the game looks
             let _ = std::fs::create_dir_all(&dir);
             let scenes = [
-                "menu", "host_lobby", "join_lobby", "countdown", "countdown_tour", "play_cpu", "play_touch", "play_local2", "stun",
+                "menu", "multi", "setup_cpu", "setup_cup", "setup_local2", "setup_lan_host", "setup_online_host", "setup_online_join", "settings", "button_test", "online_host",
+                "online_join", "host_lobby", "join_lobby", "countdown", "countdown_tour", "play_cpu", "play_touch", "play_local2", "play_local2_touch", "stun",
                 "goal", "overtime", "over", "eliminated", "champion", "pause", "pw_fire", "pw_big", "pw_ice", "pw_invis", "pw_bomb",
                 "pw_clone",
             ];
+            // `--only menu,settings`: just these
+            let only: Option<Vec<String>> = std::env::args().skip_while(|a| a != "--only").nth(1).map(|s| s.split(',').map(|x| x.to_string()).collect());
             let mut first = true;
             for (n, name) in scenes.iter().enumerate() {
+                if let Some(o) = &only {
+                    if !o.iter().any(|x| x == name) {
+                        continue;
+                    }
+                }
                 app.scene_setup(name);
                 let last = if name.starts_with("pw_") || *name == "stun" { 14 } else { 90 };
                 for f in 0..=last {
@@ -2035,6 +2129,17 @@ async fn amain(run: Run, prev_fg: isize) {
 }
 
 fn main() {
+    // `--online-test <file>`: try an online room through the internet (no window)
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(i) = args.iter().position(|a| a == "--online-test") {
+        let (ok, detail) = selftest::online_test();
+        let line = format!("{{\"step\": \"online\", \"passed\": {}, \"detail\": {:?}}}", ok, detail);
+        println!("{}", line);
+        if let Some(path) = args.get(i + 1) {
+            let _ = std::fs::write(path, &line);
+        }
+        std::process::exit(if ok { 0 } else { 1 });
+    }
     let run = parse_args();
     let prev = win::foreground();
     macroquad::Window::from_config(conf(), amain(run, prev));

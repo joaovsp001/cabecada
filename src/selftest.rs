@@ -178,7 +178,7 @@ impl SelfTest {
             7 => {
                 if f == 0 {
                     app.start_match(Mode::Cpu);
-                    app.level = 1;
+                    app.set.level = 1;
                     app.sim.phase = Phase::Play;
                     app.sim.ball = Ball { x: 760.0, y: 300.0, ..Default::default() };
                     self.x0 = app.sim.p[1].x;
@@ -311,4 +311,91 @@ fn lan_test() -> (bool, String) {
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
     (false, format!("no exchange: joiner welcomed {}, host saw player {}", cl.welcomed, host.peer.is_some()))
+}
+
+/// `--online-test <file>`: an online room through the public broker, with the host and
+/// the guest both in this process. Needs the internet (and a free broker), so it is not
+/// part of the self-test. Measures how long the match state takes from host to guest.
+pub fn online_test() -> (bool, String) {
+    let t0 = std::time::Instant::now();
+    let now = || t0.elapsed().as_secs_f64();
+    let wait = || std::thread::sleep(std::time::Duration::from_millis(4));
+    let mut host = net::Host::new_online();
+    // the room code exists once the host reached a broker
+    let code = loop {
+        host.poll(now());
+        let c = host.room_code();
+        if !c.is_empty() {
+            break c;
+        }
+        if let Some(crate::relay::LinkState::Failed(e)) = host.link() {
+            return (false, format!("the host reached no broker: {}", e));
+        }
+        if now() > 25.0 {
+            return (false, "no broker answered in 25 s".into());
+        }
+        wait();
+    };
+    let t_code = now();
+    let mut cl = net::Client::new_online(&code);
+    cl.pkind = 2;
+    cl.look = 4;
+    let mut sim = Sim::new(90.0);
+    sim.score = [3, 2];
+    let mut joined_at = None;
+    let mut lat: Vec<f64> = vec![];
+    let mut last_stamp = -1.0f32;
+    let mut presses = 0;
+    let mut was_kick = false;
+    while now() < t_code + 25.0 {
+        let n = now();
+        cl.poll(n);
+        host.poll(n);
+        if host.peer.is_some() {
+            joined_at.get_or_insert(n);
+            sim.time_left = n as f32; // the clock carries the moment it was sent
+            host.send_state(&sim);
+        }
+        let kick = (n * 5.0) as i64 % 2 == 0;
+        cl.send_input(Input { right: true, kick, ..Default::default() });
+        if let Some(s) = &cl.latest {
+            if s.score == [3, 2] && s.time_left != last_stamp {
+                last_stamp = s.time_left;
+                lat.push(n - s.time_left as f64);
+            }
+        }
+        if host.remote.kick && !was_kick {
+            presses += 1;
+        }
+        was_kick = host.remote.kick;
+        if lat.len() >= 90 && presses >= 5 {
+            break;
+        }
+        wait();
+    }
+    let broker = match host.link() {
+        Some(crate::relay::LinkState::Ready) => "ok".to_string(),
+        other => format!("{:?}", other),
+    };
+    if lat.is_empty() || joined_at.is_none() {
+        return (false, format!("room {}: host link {}, guest link {:?}, guest welcomed {}, host saw guest {}", code, broker, cl.link(), cl.welcomed, host.peer.is_some()));
+    }
+    lat.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let ms = |v: f64| (v * 1000.0).round() as i64;
+    let ok = host.remote_look == 4 && host.remote_pkind == 2 && presses >= 3;
+    (
+        ok,
+        format!(
+            "room {} reached in {:.1} s, guest joined after {:.1} s more; host to guest one way: median {} ms, 90% under {} ms ({} states); {} kick presses reached the host; guest face {} and power {} arrived",
+            code,
+            t_code,
+            joined_at.unwrap() - t_code,
+            ms(lat[lat.len() / 2]),
+            ms(lat[lat.len() * 9 / 10]),
+            lat.len(),
+            presses,
+            host.remote_look,
+            host.remote_pkind
+        ),
+    )
 }

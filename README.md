@@ -2,19 +2,23 @@
 
 Note: this build does not contain any of the original game's files; its art, sounds and name are its own (see CREDITS.md).
 
-A 1 v 1 big-head football game that works fully offline:
+A 1 v 1 big-head football game. Pick a mode in the menu, then choose everything for the match on one setup screen (character, power, opponent, stadium, time, computer level) and play:
 
-- **Contra o computador** - three difficulty levels.
-- **2 jogadores neste aparelho** - both players on one screen (each gets their own buttons).
-- **Criar partida / Entrar em partida (rede local)** - one player's device hosts, the other joins over the same Wi-Fi or the host's phone hotspot. No internet and no server.
+- **Jogar** - against the computer, three difficulty levels.
 - **Campeonato** - a three-round cup against the computer (Quartas, Semifinal, Final), each round harder; win all three to be champion.
-- **Poderes**: Fogo, Bola gigante, Gelo, Invisível, Bomba and Clones (pick one in the menu, or Aleatório). See MECHANICS.md.
+- **2 jogadores** - both players on one screen (each gets their own row of buttons).
+- **Multijogador**
+  - *Na mesma rede Wi-Fi*: one device hosts, the other joins over the same Wi-Fi or the host's phone hotspot. No internet and no server.
+  - *Pela internet*: one player creates a room and sends the 6-digit code; the other types it in. The packets go through a free public MQTT broker (`src/relay.rs`), so it works between different networks with no server of our own. Whoever joins sees the match with some delay (about 0.2 s each way from Brazil; the brokers are in Europe and the US); the host plays without delay.
+- **Personagens**: Rafa, Zeca, Dudu, Lia, Ruivo and Rei, each a little different in speed, jump, kick and power charge (`CHARS` in `src/game.rs`).
+- **Poderes**: Fogo, Bola gigante, Gelo, Invisível, Bomba and Clones (or Aleatório). See MECHANICS.md.
 - **Gol de ouro**: a tied match goes to overtime and the next goal wins.
+- **Configurações** (the gear on the menu, also in the pause box): sound effects and music volume, size and visibility of the on-screen buttons, when to show them, and a button test. Saved on the device (`settings.txt` in the app's own folder; `%APPDATA%\Cabecada` on Windows).
 
 Where the source code is and what each file does: see CODIGO.md (in Portuguese). What is still missing (art and code) is listed for the next person in PARA_GEMINI.md.
 
 ## Controls
-Touch (phones, or after the first touch): arrows bottom-left; CHUTE (kick), ALTO (high kick), PULO (jump), PODER (power) bottom-right.
+Touch (phones, or after the first touch): one row along the bottom, placed like Head Ball 2 (measured as fractions of the screen width): the two arrows on the left; kick, high kick, jump and power on the right. Their size and visibility can be changed in Configurações. New button pictures can be dropped into `assets/ui/` (see PARA_GEMINI_2.md).
 Keyboard: A/D or arrows to move, W / Up / Space to jump, F / J / K to kick, G / L high kick, R / O power, P or Esc to pause, T to show or hide the on-screen buttons. With two players on one keyboard: player 1 A D W F G R, player 2 arrows K L O.
 
 ## Building
@@ -30,6 +34,11 @@ Keyboard: A/D or arrows to move, W / Up / Space to jump, F / J / K to kick, G / 
 - On the phone the back button pauses a match, leaves the lobbies and, on the menu, asks before closing the game; a match pauses by itself when the app goes to the background.
 - Signing: with the repository secrets `ANDROID_KEYSTORE_BASE64` (the key file in base64) and `ANDROID_KEYSTORE_PASSWORD`, the workflow signs every APK with the same key, so a new APK installs over the old one; the version code is the run number, so it always goes up. Without the secrets the APK keeps a throw-away debug signature (then uninstall before installing a new one). Keep a private backup of the key: if it is lost, installed copies can no longer be updated.
 
-Options for checks: `--self-test file.json` (the game plays itself and checks each part), `--shots folder` (a picture of every screen and power), `--screenshot file.png` (one match picture).
+Options for checks:
+- `--self-test file.json`: the game plays itself and checks each part (10 steps, all must pass).
+- `--shots folder`: a picture of every screen and power. Add `--only menu,settings` for some of them and `--size 1600x720` for another screen shape (wide phones, tablets).
+- `--online-test file.json`: creates an online room through the internet broker and joins it from the same PC, and reports the delay. Needs the internet, so it is not part of the self-test.
+- `--screenshot file.png`: one match picture.
+- `cargo test`: small unit tests (settings file, room codes).
 
 Text uses `assets/fonts/game.ttf` if present, otherwise a bold font that ships with Windows; with neither, the built-in pixel font is used (without accents).

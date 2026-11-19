@@ -48,6 +48,23 @@ import android.net.wifi.WifiManager;
         }
     }
 
+    // Copies the code of an online room (called by the game, see platform.rs copy_text).
+    public void cabecadaCopyText(final String text) {
+        runOnUiThread(new Runnable() {
+            public void run() {
+                try {
+                    android.content.ClipboardManager clipboard =
+                        (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                    if (clipboard != null) {
+                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Cabecada", text));
+                    }
+                } catch (Exception e) {
+                    Log.w("Cabecada", "could not copy: " + e);
+                }
+            }
+        });
+    }
+
     // The back button always goes to the game (it pauses a match, leaves the lobbies and
     // asks before closing). Without this, when the game view is not focused Android
     // handles back itself and closes the screen.

@@ -1,0 +1,8 @@
+Imagens opcionais dos menus e dos botões da partida.
+
+Coloque aqui os PNG com os nomes da lista em PARA_GEMINI_2.md (ctrl_left.png, ctrl_kick.png,
+icon_settings.png, panel.png...). O jogo usa cada um sozinho quando o arquivo existe; não precisa
+mudar código. Sem o arquivo, o jogo desenha uma versão simples por código.
+
+Depois de pôr ou trocar uma imagem, compile de novo (cargo build --release) e confira com
+target\release\cabecada.exe --shots fotos

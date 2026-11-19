@@ -158,10 +158,11 @@ impl App {
     // -------------------------------------------------------------- main menu
 
     pub(crate) fn menu_main(&mut self) {
-        tex_draw(&self.assets.menu_bg, 0.0, 0.0, W, H, WHITE, false, 0.0);
-        rectv(0.0, 0.0, W, H, with_a(hex(0x080d1e), 0.22));
+        draw_cover(&self.assets.menu_bg, WHITE);
+        dim_screen(with_a(hex(0x080d1e), 0.22));
+        let (_, st, sr, sb) = screen_box();
         let version = concat!("v", env!("CARGO_PKG_VERSION"));
-        text(version, 1272.0 - text_w(version, 16.0), 712.0, 16.0, with_a(WHITE, 0.55));
+        text(version, sr - 8.0 - text_w(version, 16.0), sb - 8.0, 16.0, with_a(WHITE, 0.55));
         let t = self.now as f32;
         let bob1 = (t * 2.8).sin() * 6.0;
         let bob2 = (t * 2.8 + 1.6).sin() * 6.0;
@@ -196,7 +197,7 @@ impl App {
             self.screen = Screen::Multi;
             return;
         }
-        if round_button(self, 1214.0, 62.0, 38.0, "icon_settings", gear_icon) {
+        if round_button(self, sr - 66.0, st + 62.0, 38.0, "icon_settings", gear_icon) {
             self.open_settings(Screen::Menu);
             return;
         }
@@ -469,8 +470,9 @@ impl App {
 
     pub(crate) fn settings_screen(&mut self) {
         if self.settings_back == Screen::Match {
-            self.draw_field(false);
-            rectv(0.0, 0.0, W, H, with_a(BLACK, 0.55));
+            self.draw_world(false);
+            self.draw_band();
+            dim_screen(with_a(BLACK, 0.55));
         } else {
             self.draw_backdrop();
         }
@@ -497,7 +499,7 @@ impl App {
         if let Some(i) = segmented(self, x, 436.0, w, 54.0, modes, cur) {
             self.set.touch_mode = i as u8;
         }
-        if self.button("Testar botões", 210.0, 520.0, 330.0, 62.0, hex(0x2d6fd0)) {
+        if self.button("Mover botões", 210.0, 520.0, 330.0, 62.0, hex(0x2d6fd0)) {
             self.set.save();
             self.screen = Screen::ButtonTest;
             return;
@@ -520,18 +522,41 @@ impl App {
         }
     }
 
-    /// Shows the on-screen buttons over the field with the chosen size and opacity.
+    /// The button editor: the match picture with its buttons; drag a button to move it
+    /// (saved), touch one to see it pressed.
     pub(crate) fn button_test(&mut self) {
-        let bg = &self.assets.stadium_bgs[self.set.stadium as usize % 3];
-        tex_draw(bg, 0.0, 0.0, W, H, WHITE, false, 0.0);
-        rectv(0.0, 0.0, W, H, with_a(BLACK, 0.25));
-        text_o("Toque nos botões para testar", 640.0, 150.0, 34.0, WHITE);
-        text_o(&format!("Tamanho {}%   -   Visibilidade {}%", self.set.btn_scale, self.set.btn_alpha), 640.0, 190.0, 24.0, hex(0xcfe3ff));
+        if self.settings_back != Screen::Match {
+            // not over a paused match: show the chosen faces
+            self.sim.p[0].look = self.set.look;
+            self.sim.p[1].look = self.set.look2;
+        }
+        self.draw_world(false);
+        self.draw_band();
+        dim_screen(with_a(BLACK, 0.25));
+        let (l, t, r, b) = screen_box();
+        text_o("Arraste os botões para onde quiser", 640.0, t + 156.0, 34.0, WHITE);
+        text_o(&format!("Tamanho {}%  -  Visibilidade {}%  (mude nas configurações)", self.set.btn_scale, self.set.btn_alpha), 640.0, t + 194.0, 22.0, hex(0xcfe3ff));
+        let layout = touch_layout(Mode::Cpu, &self.set);
+        let (mx, my) = to_virtual(mouse_position().0, mouse_position().1);
+        if is_mouse_button_pressed(MouseButton::Left) {
+            self.drag = layout.iter().find(|bt| bt.hit(mx, my)).map(|bt| (bt.kind.slot(), mx - bt.x, my - bt.y));
+        }
+        if !is_mouse_button_down(MouseButton::Left) {
+            self.drag = None;
+        }
+        if let Some((slot, dx, dy)) = self.drag {
+            if let Some(bt) = layout.iter().find(|bt| bt.kind.slot() == slot) {
+                let x = (mx - dx).clamp(l + bt.w * 0.5, r - bt.w * 0.5);
+                let y = (my - dy).clamp(t + bt.h * 0.5, b - bt.h * 0.5);
+                self.set.btn_pos[slot] = screen_frac(x, y);
+            }
+        }
+        let layout = touch_layout(Mode::Cpu, &self.set);
         let mut held = Input::default();
         let pts = pointers();
-        for b in touch_layout(Mode::Cpu, self.btn_scale()) {
-            if pts.iter().any(|&(x, y)| b.hit(x, y)) {
-                set_btn(&mut held, b.kind);
+        for bt in &layout {
+            if pts.iter().any(|&(x, y)| bt.hit(x, y)) {
+                set_btn(&mut held, bt.kind);
             }
         }
         self.held = [held, Input::default()];
@@ -540,8 +565,19 @@ impl App {
         self.sim.p[0].power = 1.0;
         self.draw_buttons_for(Mode::Cpu);
         self.sim.p[0].power = power;
-        if self.button("Pronto", 540.0, 30.0, 200.0, 60.0, hex(0x2f8f4e)) || back_pressed() {
+        if let Some((slot, ..)) = self.drag {
+            if let Some(bt) = layout.iter().find(|bt| bt.kind.slot() == slot) {
+                rect_line(bt.x - bt.w * 0.5 - 5.0, bt.y - bt.h * 0.5 - 5.0, bt.w + 10.0, bt.h + 10.0, 3.0, hex(0xffd34d));
+            }
+        }
+        if self.button("Pronto", 400.0, t + 34.0, 220.0, 62.0, hex(0x2f8f4e)) || back_pressed() {
+            self.drag = None;
+            self.set.save();
             self.screen = Screen::Settings;
+            return;
+        }
+        if self.button("Posição original", 640.0, t + 34.0, 260.0, 62.0, hex(0x34405e)) {
+            self.set.btn_pos = [[0; 2]; 6];
         }
     }
 

@@ -54,6 +54,69 @@ fn py(y: f32) -> f32 {
 fn sc(v: f32) -> f32 {
     view().0 * v
 }
+
+/// Like `set_view`, but the 1280x720 box sits at the top of tall screens (matches: the
+/// scoreboard stays at the top and the extra room goes to the button band).
+pub fn set_view_top() {
+    let sw = screen_width();
+    let sh = screen_height();
+    let s = (sw / W).min(sh / H);
+    VIEW.with(|v| v.set((s, (sw - W * s) * 0.5, 0.0)));
+}
+
+/// Runs `f` with another view, then puts the current one back.
+pub fn with_view<R>(v: (f32, f32, f32), f: impl FnOnce() -> R) -> R {
+    let old = view();
+    VIEW.with(|c| c.set(v));
+    let r = f();
+    VIEW.with(|c| c.set(old));
+    r
+}
+
+/// The screen's edges in the current view's units: (left, top, right, bottom).
+pub fn screen_box() -> (f32, f32, f32, f32) {
+    let (s, ox, oy) = view();
+    (-ox / s, -oy / s, (screen_width() - ox) / s, (screen_height() - oy) / s)
+}
+
+/// A 1280x720 picture covering the whole screen: cropped at the edges, never stretched.
+pub fn cover_view() -> (f32, f32, f32) {
+    let (sw, sh) = (screen_width(), screen_height());
+    let s = (sw / W).max(sh / H);
+    (s, (sw - W * s) * 0.5, (sh - H * s) * 0.5)
+}
+
+pub fn draw_cover(tex: &Texture2D, tint: Color) {
+    with_view(cover_view(), || tex_draw(tex, 0.0, 0.0, W, H, tint, false, 0.0));
+}
+
+/// A see-through colour over the whole screen.
+pub fn dim_screen(c: Color) {
+    draw_rectangle(0.0, 0.0, screen_width(), screen_height(), c);
+}
+
+/// Share of the screen height kept for the button band under the field (Head Ball 2: the
+/// field ends at about 80% of the height and the buttons sit in a dark strip below it).
+pub const BAND: f32 = 0.20;
+/// The field picture is shown down to here (a little grass below the near touchline).
+pub const WORLD_BOTTOM: f32 = 700.0;
+
+/// The match camera: the whole width of the field fills the screen width (no stretched
+/// edges on long phones) and the field ends where the button band begins. On tall screens
+/// the field starts at the top and the band gets taller.
+pub fn match_view() -> (f32, f32, f32) {
+    let (sw, sh) = (screen_width(), screen_height());
+    let s = sw / W;
+    let oy = (sh * (1.0 - BAND) - WORLD_BOTTOM * s).min(0.0);
+    (s, 0.0, oy)
+}
+
+/// Where the button band starts, in the current view's units.
+pub fn band_top() -> f32 {
+    let (ms, _, moy) = match_view();
+    let (s, _, oy) = view();
+    (WORLD_BOTTOM * ms + moy - oy) / s
+}
 pub fn circ(x: f32, y: f32, r: f32, c: Color) {
     draw_circle(px(x), py(y), sc(r), c);
 }
@@ -128,26 +191,6 @@ pub fn tex_sub(tex: &Texture2D, sx: f32, sy: f32, sw: f32, sh: f32, x: f32, y: f
             ..Default::default()
         },
     );
-}
-/// Phones are wider than 16:9 (and tablets taller), so the 1280x720 picture leaves bars
-/// at the sides (or top and bottom). Fill them with the edges of the current background,
-/// stretched and a little darker, so the scene seems to go on.
-pub fn draw_side_fill(tex: &Texture2D) {
-    let (s, ox, oy) = view();
-    let (tw, th) = (tex.width(), tex.height());
-    let strip = 24.0;
-    let tint = Color::new(0.7, 0.7, 0.76, 1.0);
-    let draw = |src: Rect, x: f32, y: f32, w: f32, h: f32| {
-        draw_texture_ex(tex, x, y, tint, DrawTextureParams { dest_size: Some(vec2(w, h)), source: Some(src), ..Default::default() });
-    };
-    if ox > 0.5 {
-        draw(Rect::new(0.0, 0.0, strip, th), 0.0, oy, ox + 1.0, H * s);
-        draw(Rect::new(tw - strip, 0.0, strip, th), ox + W * s - 1.0, oy, ox + 1.0, H * s);
-    }
-    if oy > 0.5 {
-        draw(Rect::new(0.0, 0.0, tw, strip), ox, 0.0, W * s, oy + 1.0);
-        draw(Rect::new(0.0, th - strip, tw, strip), ox, oy + H * s - 1.0, W * s, oy + 1.0);
-    }
 }
 
 pub fn draw_9slice(tex: &Texture2D, x: f32, y: f32, w: f32, h: f32, col: Color) {
@@ -286,6 +329,20 @@ pub enum Btn {
     Power,
 }
 
+impl Btn {
+    /// Its place in `Settings::btn_pos`.
+    pub fn slot(self) -> usize {
+        match self {
+            Btn::Left => 0,
+            Btn::Right => 1,
+            Btn::Kick => 2,
+            Btn::Lob => 3,
+            Btn::Jump => 4,
+            Btn::Power => 5,
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct TouchBtn {
     pub who: usize,
@@ -312,24 +369,26 @@ pub enum Mode {
     Client,
 }
 
-/// Where the on-screen buttons go, like Head Ball 2: one row along the bottom of the
-/// real screen (not of the 16:9 picture), the two arrows on the left and kick, high kick,
-/// jump and power on the right. Positions are fractions of the screen width measured on
-/// the original game; sizes follow the screen height (scaled by the size setting).
-pub fn touch_layout(mode: Mode, scale: f32) -> Vec<TouchBtn> {
-    let (s, ox, oy) = view();
-    let left = -ox / s;
-    let right = W + ox / s;
-    let bottom = H + oy / s;
+/// Where the on-screen buttons go, measured on Head Ball 2: one row in the dark band under
+/// the field, about 1/8 of the screen height tall and 1.45 times as wide; the two arrows
+/// near the left corner, kick, high kick and jump near the right corner (distances from
+/// the screen edges in screen heights), and the power button in the top-right corner.
+/// The size setting scales them, and buttons the player moved go where they were put.
+pub fn touch_layout(mode: Mode, set: &settings::Settings) -> Vec<TouchBtn> {
+    let scale = set.btn_scale as f32 / 100.0;
+    let (left, top, right, bottom) = screen_box();
     let width = right - left;
+    let hs = bottom - top;
+    let band = band_top().clamp(top + hs * 0.5, bottom - hs * 0.1);
+    let y = (band + bottom) * 0.5;
+    let band_h = bottom - band;
     let mut v = vec![];
     match mode {
         Mode::Local2 => {
-            // each player gets half of the screen, mirrored, all in one row: the arrows at
-            // the outer edge, then kick, high kick, jump and power towards the middle
-            let bw = (133.0 * scale * 0.82).min((width * 0.5 - 68.0) / 5.69);
-            let bh = bw * 92.0 / 133.0;
-            let y = bottom - 14.0 - bh * 0.5;
+            // each player gets half of the band, mirrored: the arrows at the outer edge,
+            // then kick, high kick, jump and power towards the middle
+            let bw = (0.125 * hs * 1.45 * scale * 0.82).min((width * 0.5 - 68.0) / 5.69).min(band_h * 0.8 * 1.45);
+            let bh = bw / 1.45;
             for who in 0..2 {
                 let (outer, inner) = if who == 0 { (Btn::Left, Btn::Right) } else { (Btn::Right, Btn::Left) };
                 let mut pos = 18.0; // from the screen edge to the next button
@@ -340,32 +399,51 @@ pub fn touch_layout(mode: Mode, scale: f32) -> Vec<TouchBtn> {
                     pos += w + 8.0;
                 }
             }
+            return v;
         }
         _ => {
             let who = if mode == Mode::Client { 1 } else { 0 };
-            let bw = 133.0 * scale; // the original buttons are a bit wider than tall
-            let bh = 92.0 * scale;
-            let y = bottom - 18.0 - bh * 0.5;
-            let kinds = [Btn::Left, Btn::Right, Btn::Kick, Btn::Lob, Btn::Jump, Btn::Power];
-            let ws = [bw, bw, bw, bw, bw, bh];
-            // centres measured on the original, as fractions of the screen width
-            let mut xs = [0.184f32, 0.342, 0.561, 0.676, 0.789, 0.905].map(|f| left + width * f);
+            let bh = (0.125 * hs * scale).min(band_h * 0.92);
+            let bw = bh * 1.45;
+            let kinds = [Btn::Left, Btn::Right, Btn::Kick, Btn::Lob, Btn::Jump];
+            let mut xs = [left + 0.231 * hs, left + 0.515 * hs, right - 0.640 * hs, right - 0.418 * hs, right - 0.187 * hs];
             // keep them apart and inside the screen, whatever its shape and the size setting
-            let gap = |i: usize| if i == 2 { 40.0 } else { 12.0 }; // space before button i
-            xs[0] = xs[0].max(left + 16.0 + ws[0] * 0.5);
-            for i in 1..6 {
-                xs[i] = xs[i].max(xs[i - 1] + (ws[i - 1] + ws[i]) * 0.5 + gap(i));
+            let gap = |i: usize| if i == 2 { 40.0 } else { 10.0 }; // space before button i
+            xs[0] = xs[0].max(left + 12.0 + bw * 0.5);
+            for i in 1..5 {
+                xs[i] = xs[i].max(xs[i - 1] + bw + gap(i));
             }
-            xs[5] = xs[5].min(right - 16.0 - ws[5] * 0.5);
-            for i in (0..5).rev() {
-                xs[i] = xs[i].min(xs[i + 1] - (ws[i] + ws[i + 1]) * 0.5 - gap(i + 1));
+            xs[4] = xs[4].min(right - 12.0 - bw * 0.5);
+            for i in (0..4).rev() {
+                xs[i] = xs[i].min(xs[i + 1] - bw - gap(i + 1));
             }
-            for i in 0..6 {
-                v.push(TouchBtn { who, kind: kinds[i], x: xs[i], y, w: ws[i], h: bh });
+            for i in 0..5 {
+                v.push(TouchBtn { who, kind: kinds[i], x: xs[i], y, w: bw, h: bh });
             }
+            // power: the big green button in the top-right corner
+            let ph = 0.14 * hs * scale.min(1.25);
+            let pw = ph * 1.15;
+            v.push(TouchBtn { who, kind: Btn::Power, x: right - pw * 0.5 - 0.012 * hs, y: top + ph * 0.5 + 0.035 * hs, w: pw, h: ph });
         }
     }
+    // buttons the player moved (thousandths of the screen), always kept on the screen
+    for b in v.iter_mut() {
+        let p = set.btn_pos[b.kind.slot()];
+        if p[0] != 0 {
+            b.x = left + width * p[0] as f32 / 1000.0;
+            b.y = top + hs * p[1] as f32 / 1000.0;
+        }
+        b.x = b.x.clamp(left + b.w * 0.5, right - b.w * 0.5);
+        b.y = b.y.clamp(top + b.h * 0.5, bottom - b.h * 0.5);
+    }
     v
+}
+
+/// A position on the screen in thousandths (for `Settings::btn_pos`).
+pub fn screen_frac(x: f32, y: f32) -> [u16; 2] {
+    let (l, t, r, b) = screen_box();
+    let f = |v: f32, a: f32, z: f32| (((v - a) / (z - a)) * 1000.0).round().clamp(1.0, 1000.0) as u16;
+    [f(x, l, r), f(y, t, b)]
 }
 
 /// Every finger (and a held mouse button) in virtual coordinates.
@@ -511,6 +589,7 @@ pub struct App {
     code_text: String,           // online room code being typed
     music: Option<macroquad::audio::Sound>,
     music_on: bool,
+    drag: Option<(usize, f32, f32)>, // the button being moved in the button editor
     quit_ask: bool,     // the "leave the game?" box is open
     events_sub: usize,  // macroquad input subscriber, to hear when the app goes to the background
 }
@@ -563,27 +642,9 @@ impl App {
             code_text: String::new(),
             music,
             music_on: false,
+            drag: None,
             quit_ask: false,
             events_sub: macroquad::input::utils::register_input_subscriber(),
-        }
-    }
-
-    /// The cup was just won: the champion screen is showing.
-    fn champion_showing(&self) -> bool {
-        self.screen == Screen::Match
-            && self.mode == Mode::Cpu
-            && self.sim.phase == Phase::Over
-            && self.over_t > 1.2
-            && matches!(self.tour, Some(t) if t.round + 1 >= TOUR_ROUNDS.len())
-            && self.sim.winner() == Some(0)
-    }
-
-    /// The picture behind the current screen (also used to fill the sides of wide phones).
-    fn backdrop_tex(&self) -> &Texture2D {
-        if self.screen == Screen::Match && !self.champion_showing() {
-            &self.assets.stadium_bgs[self.sim.stadium as usize % self.assets.stadium_bgs.len()]
-        } else {
-            &self.assets.menu_bg
         }
     }
 
@@ -695,7 +756,7 @@ impl App {
         }
         if self.touch_ui {
             let pts = pointers();
-            for b in touch_layout(self.mode, self.btn_scale()) {
+            for b in touch_layout(self.mode, &self.set) {
                 if pts.iter().any(|&(x, y)| b.hit(x, y)) {
                     set_btn(&mut inp[b.who], b.kind);
                 }
@@ -1005,7 +1066,12 @@ impl App {
         self.ai_both = false;
         self.particles.clear();
         self.shake = 0.0;
-        self.touch_ui = name.ends_with("touch");
+        self.touch_ui = name.contains("touch");
+        self.set.btn_pos = [[0; 2]; 6];
+        if name == "play_touch_moved" {
+            self.set.btn_pos[Btn::Kick.slot()] = [560, 640];
+            self.set.btn_pos[Btn::Power.slot()] = [940, 905];
+        }
         self.tour = match name {
             "countdown_tour" => Some(Tour { round: 1 }),
             "champion" => Some(Tour { round: 2 }),
@@ -1052,7 +1118,7 @@ impl App {
                 self.set.power = PK_FIRE;
                 self.set.level = 2;
                 self.start_match(mode);
-                self.ai_both = name == "play_cpu" || name == "play_touch";
+                self.ai_both = name == "play_cpu" || name.starts_with("play_touch");
                 self.sim.phase = Phase::Play;
                 self.sim.time_left = 74.0;
                 self.sim.score = [1, 1];
@@ -1135,6 +1201,9 @@ impl App {
     fn scene_frame(&mut self, dt: f32) {
         self.now += dt as f64;
         if self.screen == Screen::Match {
+            set_view_top();
+        }
+        if self.screen == Screen::Match {
             self.update_match(dt, [Input::default(); 2]);
             self.draw_match();
             self.match_overlays();
@@ -1153,9 +1222,12 @@ impl App {
         if life.went_away && self.screen == Screen::Match && matches!(self.mode, Mode::Cpu | Mode::Local2) && self.sim.phase != Phase::Over {
             self.paused = true;
         }
-        set_view();
+        if self.screen == Screen::Match {
+            set_view_top();
+        } else {
+            set_view();
+        }
         clear_background(hex(0x0b1022));
-        draw_side_fill(self.backdrop_tex());
         self.crowd(self.in_match());
         self.update_music();
         self.screen_frame(dt);
@@ -1231,8 +1303,8 @@ impl App {
     }
 
     fn draw_backdrop(&self) {
-        tex_draw(&self.assets.menu_bg, 0.0, 0.0, W, H, WHITE, false, 0.0);
-        rectv(0.0, 0.0, W, H, with_a(hex(0x0a0f24), 0.42));
+        draw_cover(&self.assets.menu_bg, WHITE);
+        dim_screen(with_a(hex(0x0a0f24), 0.42));
     }
 
     /// Main menu. The phone's back button (or Esc) opens a "leave the game?" box.
@@ -1412,11 +1484,11 @@ impl App {
     fn match_overlays(&mut self) {
         let sim = self.sim.clone();
         // pause button
-        let pause_hit = self.clicked().map(|(x, y)| (x - 640.0).powi(2) + (y - 126.0).powi(2) < 24.0f32.powi(2)).unwrap_or(false);
-        circ(640.0, 126.0, 18.0, with_a(BLACK, 0.55));
-        circ_line(640.0, 126.0, 18.0, 2.0, with_a(WHITE, 0.55));
-        rectv(633.0, 117.0, 4.5, 18.0, WHITE);
-        rectv(642.5, 117.0, 4.5, 18.0, WHITE);
+        let (sl, st, _, _) = screen_box();
+        let pause_hit = ui::round_button(self, sl + 48.0, st + 48.0, 32.0, "icon_pause", |x, y, r| {
+            rectv(x - r * 0.32, y - r * 0.4, r * 0.22, r * 0.8, WHITE);
+            rectv(x + r * 0.1, y - r * 0.4, r * 0.22, r * 0.8, WHITE);
+        });
         // the phone's back button: pause (or leave a finished or broken match)
         let back = is_key_pressed(KeyCode::Back);
         let over_box = sim.phase == Phase::Over && self.over_t > 1.2;
@@ -1431,7 +1503,7 @@ impl App {
         }
 
         if self.lost {
-            rectv(0.0, 0.0, W, H, with_a(BLACK, 0.6));
+            dim_screen(with_a(BLACK, 0.6));
             let msg = if self.mode == Mode::Host { "O outro jogador saiu ou perdeu a conexão" } else { "Conexão com a partida perdida" };
             text_o(msg, 640.0, 300.0, 40.0, WHITE);
             if self.mode == Mode::Host {
@@ -1454,7 +1526,7 @@ impl App {
         }
 
         if self.paused {
-            rectv(0.0, 0.0, W, H, with_a(BLACK, 0.6));
+            dim_screen(with_a(BLACK, 0.6));
             text_o("Pausa", 640.0, 250.0, 64.0, WHITE);
             if matches!(self.mode, Mode::Host | Mode::Client) {
                 text_o("(a partida em rede continua rodando)", 640.0, 290.0, 24.0, hex(0xb8c6e6));
@@ -1483,7 +1555,7 @@ impl App {
                     self.champion_screen();
                     return;
                 }
-                rectv(0.0, 0.0, W, H, with_a(BLACK, 0.55));
+                dim_screen(with_a(BLACK, 0.55));
                 if won {
                     text_o("VITÓRIA!", 640.0, 240.0, 80.0, hex(0xffd34d));
                     text_o(&score_line, 640.0, 300.0, 36.0, WHITE);
@@ -1507,7 +1579,7 @@ impl App {
                 }
                 return;
             }
-            rectv(0.0, 0.0, W, H, with_a(BLACK, 0.55));
+            dim_screen(with_a(BLACK, 0.55));
             let title = match sim.winner() {
                 None => "EMPATE".to_string(),
                 Some(w) => {
@@ -1547,19 +1619,21 @@ impl App {
 
     /// The cup is won: the winner on the podium with trophy and confetti.
     fn champion_screen(&mut self) {
-        tex_draw(&self.assets.menu_bg, 0.0, 0.0, W, H, WHITE, false, 0.0);
-        rectv(0.0, 0.0, W, H, with_a(hex(0x080d1e), 0.18));
+        draw_cover(&self.assets.menu_bg, WHITE);
+        dim_screen(with_a(hex(0x080d1e), 0.18));
         let t = self.now as f32;
         let c0 = self.sim.p[0].look as usize % 6;
         // 3-stage cup bracket ribbon
         rrect(310.0, 224.0, 660.0, 44.0, 22.0, with_a(BLACK, 0.55));
         text_o("Quartas  OK        Semifinal  OK        Final  OK", 640.0, 254.0, 22.0, hex(0xffe14a));
-        // Winner + Trophy on podium
-        ellipse(590.0, 548.0, 82.0, 16.0, with_a(BLACK, 0.32));
-        ellipse(740.0, 548.0, 60.0, 14.0, with_a(BLACK, 0.30));
-        tex_center(&self.assets.boots[c0], 596.0, 526.0, 96.0, 64.0, WHITE, false, -0.04);
-        tex_center(&self.assets.heads[c0], 590.0, 438.0 + (t * 3.0).sin() * 5.0, 186.0, 186.0, WHITE, false, (t * 1.6).sin() * 0.05);
-        tex_center(&self.assets.trophy, 742.0, 458.0 + (t * 2.4 + 1.0).sin() * 4.0, 175.0, 175.0, WHITE, false, (t * 1.2).sin() * 0.04);
+        // Winner + Trophy on the podium (drawn with the background's own crop)
+        with_view(cover_view(), || {
+            ellipse(590.0, 548.0, 82.0, 16.0, with_a(BLACK, 0.32));
+            ellipse(740.0, 548.0, 60.0, 14.0, with_a(BLACK, 0.30));
+            tex_center(&self.assets.boots[c0], 596.0, 526.0, 96.0, 64.0, WHITE, false, -0.04);
+            tex_center(&self.assets.heads[c0], 590.0, 438.0 + (t * 3.0).sin() * 5.0, 186.0, 186.0, WHITE, false, (t * 1.6).sin() * 0.05);
+            tex_center(&self.assets.trophy, 742.0, 458.0 + (t * 2.4 + 1.0).sin() * 4.0, 175.0, 175.0, WHITE, false, (t * 1.2).sin() * 0.04);
+        });
         text_o("CAMPEÃO!", 640.0, 142.0, 96.0, hex(0xffd34d));
         text_o("Você venceu o campeonato!", 640.0, 198.0, 32.0, WHITE);
         if rand::gen_range(0.0, 1.0) < 0.35 {
@@ -1737,43 +1811,91 @@ impl App {
         }
     }
 
+    /// The field, players, ball, goals and effects, through the match camera.
+    pub(crate) fn draw_world(&self, live: bool) {
+        // the screen shakes up and down only, so the sides never show a gap
+        let shake = if live && self.shake > 0.0 { (self.now as f32 * 90.0).sin() * 5.0 * self.shake / 0.25 } else { 0.0 };
+        let (s, ox, oy) = match_view();
+        with_view((s, ox, oy + shake * s), || {
+            self.draw_field(live);
+            for p in &self.particles {
+                if p.c.r > 0.9 && p.c.g < 0.6 {
+                    circ(p.x, p.y, p.r * (1.0 - p.life / p.max), with_a(p.c, 0.7));
+                }
+            }
+            self.draw_player(0);
+            self.draw_player(1);
+            self.draw_ball();
+            self.draw_goal_frames();
+            for p in &self.particles {
+                if !(p.c.r > 0.9 && p.c.g < 0.6) {
+                    circ(p.x, p.y, p.r, with_a(p.c, 1.0 - p.life / p.max));
+                }
+            }
+            for f in &self.fx {
+                let k = (f.life / f.max).clamp(0.0, 0.999);
+                match f.kind {
+                    FxKind::Dust => {
+                        let frame = (k * 6.0) as usize;
+                        tex_sub(&self.assets.fx_dust, frame as f32 * 128.0, 0.0, 128.0, 128.0, f.x - f.size * 0.5, f.y - f.size * 0.5, f.size, f.size, WHITE, f.flip_x, 0.0);
+                    }
+                    FxKind::Kick => {
+                        let frame = (k * 6.0) as usize;
+                        tex_sub(&self.assets.fx_kick, frame as f32 * 128.0, 0.0, 128.0, 128.0, f.x - f.size * 0.5, f.y - f.size * 0.5, f.size, f.size, WHITE, f.flip_x, 0.0);
+                    }
+                    FxKind::Boom => {
+                        let frame = (k * 8.0) as usize;
+                        tex_center(&self.assets.boom[frame.min(7)], f.x, f.y, f.size, f.size, WHITE, false, 0.0);
+                    }
+                }
+            }
+        });
+    }
+
+    /// The dark strip under the field where the buttons sit (`assets/ui/band.png` if it exists).
+    pub(crate) fn draw_band(&self) {
+        let (l, _, r, b) = screen_box();
+        let top = band_top();
+        if top >= b {
+            return;
+        }
+        if let Some(tex) = self.assets.ui("band") {
+            tex_draw(tex, l, top, r - l, b - top, WHITE, false, 0.0);
+            return;
+        }
+        let h = b - top;
+        rectv(l, top, r - l, h, hex(0x2a1d15));
+        for i in 0..6 {
+            // darker towards the bottom
+            let y = top + h * (0.4 + i as f32 * 0.1);
+            rectv(l, y, r - l, h * 0.1 + 1.0, with_a(hex(0x120c08), 0.08 + i as f32 * 0.05));
+        }
+        rectv(l, top, r - l, 9.0, hex(0x4b3525));
+        rectv(l, top + 9.0, r - l, 5.0, with_a(BLACK, 0.45));
+    }
+
+    /// When the ball flies above what the screen shows, a little ball and arrow at the
+    /// top mark where it is.
+    fn draw_ball_marker(&self) {
+        let b = self.sim.ball;
+        let (ms, mox, moy) = match_view();
+        let seen_top = -moy / ms;
+        if b.y + b.r() >= seen_top || self.ball_alpha() < 0.5 {
+            return;
+        }
+        let (s, ox, _) = view();
+        let x = (b.x * ms + mox - ox) / s;
+        let (_, t, _, _) = screen_box();
+        let y = t + 146.0;
+        let a = 0.6 + 0.3 * (self.now as f32 * 8.0).sin().abs();
+        tri((x, y - 34.0), (x - 13.0, y - 20.0), (x + 13.0, y - 20.0), with_a(WHITE, a));
+        tex_center(&self.assets.ball, x, y, 30.0, 30.0, with_a(WHITE, a), false, b.angle);
+    }
+
     fn draw_match(&mut self) {
-        let shake = if self.shake > 0.0 { (self.now as f32 * 90.0).sin() * 5.0 * self.shake / 0.25 } else { 0.0 };
-        let (s, ox, oy) = view();
-        VIEW.with(|v| v.set((s, ox + shake * s, oy)));
-        self.draw_field(true);
-        for p in &self.particles {
-            if p.c.r > 0.9 && p.c.g < 0.6 {
-                circ(p.x, p.y, p.r * (1.0 - p.life / p.max), with_a(p.c, 0.7));
-            }
-        }
-        self.draw_player(0);
-        self.draw_player(1);
-        self.draw_ball();
-        self.draw_goal_frames();
-        for p in &self.particles {
-            if !(p.c.r > 0.9 && p.c.g < 0.6) {
-                circ(p.x, p.y, p.r, with_a(p.c, 1.0 - p.life / p.max));
-            }
-        }
-        for f in &self.fx {
-            let k = (f.life / f.max).clamp(0.0, 0.999);
-            match f.kind {
-                FxKind::Dust => {
-                    let frame = (k * 6.0) as usize;
-                    tex_sub(&self.assets.fx_dust, frame as f32 * 128.0, 0.0, 128.0, 128.0, f.x - f.size * 0.5, f.y - f.size * 0.5, f.size, f.size, WHITE, f.flip_x, 0.0);
-                }
-                FxKind::Kick => {
-                    let frame = (k * 6.0) as usize;
-                    tex_sub(&self.assets.fx_kick, frame as f32 * 128.0, 0.0, 128.0, 128.0, f.x - f.size * 0.5, f.y - f.size * 0.5, f.size, f.size, WHITE, f.flip_x, 0.0);
-                }
-                FxKind::Boom => {
-                    let frame = (k * 8.0) as usize;
-                    tex_center(&self.assets.boom[frame.min(7)], f.x, f.y, f.size, f.size, WHITE, false, 0.0);
-                }
-            }
-        }
-        VIEW.with(|v| v.set((s, ox, oy)));
+        self.draw_world(true);
+        self.draw_band();
+        self.draw_ball_marker();
         self.draw_hud();
         self.draw_touch_buttons();
     }
@@ -1801,20 +1923,20 @@ impl App {
         // names and power bars
         for i in 0..2 {
             let p = sim.p[i];
-            let (bx, name_x) = if i == 0 { (30.0, 30.0) } else { (W - 30.0 - 360.0, W - 30.0) };
+            let (bx, name_x) = if i == 0 { (140.0, 140.0) } else { (W - 140.0 - 300.0, W - 140.0) };
             let name = self.player_name(i);
             let nw = text_w(name, 28.0);
             let nx = if i == 0 { name_x } else { name_x - nw };
             text(name, nx + 2.0, 35.0, 28.0, with_a(BLACK, 0.75));
             text(name, nx, 33.0, 28.0, WHITE);
-            rrect(bx, 44.0, 360.0, 26.0, 13.0, with_a(hex(0x0b1022), 0.85));
+            rrect(bx, 44.0, 300.0, 26.0, 13.0, with_a(hex(0x0b1022), 0.85));
             let fill = if p.power_ready > 0.0 { p.power_ready / game::POWER_READY_TIME } else { p.power };
-            let fw = (352.0 * fill).max(0.0);
+            let fw = (292.0 * fill).max(0.0);
             let full = p.power >= 1.0 || p.power_ready > 0.0;
             let pulse = if full { 0.25 + 0.25 * (self.now as f32 * 8.0).sin() } else { 0.0 };
             let col = mix(hex(0xff8a1a), hex(0xffe14a), pulse + 0.2);
             if fw > 2.0 {
-                let fx = if i == 0 { bx + 4.0 } else { bx + 356.0 - fw };
+                let fx = if i == 0 { bx + 4.0 } else { bx + 296.0 - fw };
                 rrect(fx, 48.0, fw, 18.0, 9.0, col);
             }
             let pname = POWER_NAMES[(p.pkind % POWER_KINDS) as usize].to_uppercase();
@@ -1825,13 +1947,13 @@ impl App {
             } else {
                 format!("PODER: {}", pname)
             };
-            text_o(&label, bx + 180.0, 65.0, 20.0, WHITE);
+            text_o(&label, bx + 150.0, 65.0, 19.0, WHITE);
         }
         self.hud.power = true;
         if let Some(t) = self.tour {
             let label = format!("Campeonato: {}", TOUR_ROUNDS[t.round.min(2)].0);
-            text(&label, 32.0, 100.0, 22.0, with_a(BLACK, 0.75));
-            text(&label, 30.0, 98.0, 22.0, hex(0xffe9a0));
+            text(&label, 142.0, 100.0, 22.0, with_a(BLACK, 0.75));
+            text(&label, 140.0, 98.0, 22.0, hex(0xffe9a0));
         }
 
         // big centre messages (hidden while the pause or "connection lost" box is open)
@@ -1893,8 +2015,10 @@ impl App {
         let size = 19.0;
         let w = text_w(msg, size) + 44.0;
         let fade = if self.sim.time_left < self.sim.match_len - 10.0 { 0.55 } else { 1.0 };
-        rrect(640.0 - w * 0.5, 683.0, w, 30.0, 15.0, with_a(BLACK, 0.5 * fade));
-        text(msg, 640.0 - w * 0.5 + 22.0, 704.0, size, with_a(WHITE, 0.95 * fade));
+        let (_, _, _, b) = screen_box();
+        let cy = (band_top() + b) * 0.5;
+        rrect(640.0 - w * 0.5, cy - 15.0, w, 30.0, 15.0, with_a(BLACK, 0.5 * fade));
+        text(msg, 640.0 - w * 0.5 + 22.0, cy + 6.0, size, with_a(WHITE, 0.95 * fade));
     }
 
     fn draw_touch_buttons(&mut self) {
@@ -1912,7 +2036,7 @@ impl App {
     pub(crate) fn draw_buttons_for(&self, mode: Mode) {
         let t = self.now as f32;
         let alpha = self.set.btn_alpha as f32 / 100.0;
-        for b in touch_layout(mode, self.btn_scale()) {
+        for b in touch_layout(mode, &self.set) {
             let inp = self.held[b.who];
             let down = match b.kind {
                 Btn::Left => inp.left,
@@ -1937,6 +2061,19 @@ impl App {
             };
             let pulse = if b.kind == Btn::Power && ready { 1.0 + 0.06 * (t * 8.0).sin() } else { 1.0 };
             let k = if down { 0.92 } else { 1.0 } * pulse;
+            if b.kind == Btn::Power {
+                // grey while charging, filling up with colour from the bottom
+                let tex = &self.assets.btn_powers[(p.pkind as usize) % 6];
+                let sz = b.h * k;
+                let fill = if ready { 1.0 } else { p.power.clamp(0.0, 1.0) };
+                tex_center(tex, b.x, b.y, sz, sz, Color::new(0.42, 0.42, 0.46, 0.75 * alpha), false, 0.0);
+                if fill > 0.01 {
+                    let (tw, th) = (tex.width(), tex.height());
+                    let a = if ready { alpha.max(0.9) } else { alpha * 0.85 };
+                    tex_sub(tex, 0.0, th * (1.0 - fill), tw, th * fill, b.x - sz * 0.5, b.y + sz * 0.5 - sz * fill, sz, sz * fill, Color::new(1.0, 1.0, 1.0, a), false, 0.0);
+                }
+                continue;
+            }
             let tint = match b.kind {
                 Btn::Power if !ready => Color::new(0.45, 0.45, 0.48, 0.65 * alpha),
                 _ if down => Color::new(1.0, 1.0, 1.0, alpha.max(0.85)),
@@ -2055,7 +2192,7 @@ async fn amain(run: Run, prev_fg: isize) {
                 if f == 1 {
                     win::lower_window(prev_fg);
                 }
-                set_view();
+                set_view_top();
                 clear_background(hex(0x0b1022));
                 app.now += 1.0 / 60.0;
                 app.update_match(1.0 / 60.0, [Input::default(); 2]);
@@ -2073,7 +2210,7 @@ async fn amain(run: Run, prev_fg: isize) {
             let _ = std::fs::create_dir_all(&dir);
             let scenes = [
                 "menu", "multi", "setup_cpu", "setup_cup", "setup_local2", "setup_lan_host", "setup_online_host", "setup_online_join", "settings", "button_test", "online_host",
-                "online_join", "host_lobby", "join_lobby", "countdown", "countdown_tour", "play_cpu", "play_touch", "play_local2", "play_local2_touch", "stun",
+                "online_join", "host_lobby", "join_lobby", "countdown", "countdown_tour", "play_cpu", "play_touch", "play_touch_moved", "play_local2", "play_local2_touch", "stun",
                 "goal", "overtime", "over", "eliminated", "champion", "pause", "pw_fire", "pw_big", "pw_ice", "pw_invis", "pw_bomb",
                 "pw_clone",
             ];
@@ -2113,7 +2250,7 @@ async fn amain(run: Run, prev_fg: isize) {
                     win::lower_window(prev_fg);
                 }
                 frame += 1;
-                set_view();
+                set_view_top();
                 clear_background(hex(0x0b1022));
                 app.now += 1.0 / 60.0;
                 let done = t.tick(&mut app);

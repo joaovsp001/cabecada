@@ -17,11 +17,14 @@ pub struct Settings {
     pub stadium: u8,
     pub len_idx: u8,    // match length (MATCH_LENGTHS index)
     pub level: u8,      // computer level 0..=2
+    /// Where the player moved each match button (left, right, kick, high kick, jump, power):
+    /// the centre in thousandths of the screen width and height; 0 = the normal place.
+    pub btn_pos: [[u16; 2]; 6],
 }
 
 impl Default for Settings {
     fn default() -> Settings {
-        Settings { sfx: 8, music: 5, btn_scale: 100, btn_alpha: 90, touch_mode: 0, look: 0, look2: 1, power: 6, stadium: 0, len_idx: 1, level: 1 }
+        Settings { sfx: 8, music: 5, btn_scale: 100, btn_alpha: 90, touch_mode: 0, look: 0, look2: 1, power: 6, stadium: 0, len_idx: 1, level: 1, btn_pos: [[0; 2]; 6] }
     }
 }
 
@@ -59,6 +62,13 @@ impl Settings {
         self.stadium %= 3;
         self.len_idx = self.len_idx.min(2);
         self.level = self.level.min(2);
+        for p in self.btn_pos.iter_mut() {
+            if p[0] == 0 || p[1] == 0 {
+                *p = [0, 0];
+            }
+            p[0] = p[0].min(1000);
+            p[1] = p[1].min(1000);
+        }
     }
 
     pub fn load() -> Settings {
@@ -79,6 +89,15 @@ impl Settings {
         let mut s = Settings::default();
         for line in text.lines() {
             if let Some((k, v)) = line.split_once('=') {
+                // a moved button: pos_N=x,y
+                if let Some(n) = k.trim().strip_prefix("pos_").and_then(|n| n.parse::<usize>().ok()) {
+                    if let Some((x, y)) = v.trim().split_once(',') {
+                        if let (Some(slot), Ok(x), Ok(y)) = (s.btn_pos.get_mut(n), x.trim().parse::<u16>(), y.trim().parse::<u16>()) {
+                            *slot = [x, y];
+                        }
+                    }
+                    continue;
+                }
                 if let Ok(v) = v.trim().parse::<u8>() {
                     for (name, field) in s.fields() {
                         if name == k.trim() {
@@ -94,8 +113,13 @@ impl Settings {
 
     fn to_text(&self) -> String {
         let mut copy = *self;
-        copy.fields().iter().map(|(k, v)| format!("{}={}
-", k, v)).collect()
+        let mut out: String = copy.fields().iter().map(|(k, v)| format!("{}={}\n", k, v)).collect();
+        for (i, p) in self.btn_pos.iter().enumerate() {
+            if p[0] != 0 {
+                out.push_str(&format!("pos_{}={},{}\n", i, p[0], p[1]));
+            }
+        }
+        out
     }
 }
 
@@ -111,7 +135,9 @@ mod tests {
 
     #[test]
     fn saved_settings_come_back() {
-        let s = Settings { sfx: 3, music: 0, btn_scale: 120, btn_alpha: 60, touch_mode: 1, look: 4, look2: 2, power: 3, stadium: 2, len_idx: 0, level: 2 };
+        let mut s = Settings { sfx: 3, music: 0, btn_scale: 120, btn_alpha: 60, touch_mode: 1, look: 4, look2: 2, power: 3, stadium: 2, len_idx: 0, level: 2, ..Default::default() };
+        s.btn_pos[2] = [640, 870];
+        s.btn_pos[5] = [955, 120];
         assert_eq!(Settings::from_text(&s.to_text()), s);
     }
 

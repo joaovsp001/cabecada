@@ -84,7 +84,14 @@ Sobre o `panel.png`: ele é esticado em 9 partes. Os **32 px de cada canto** fic
 cantos arredondados e a borda precisam caber nesses 32 px. Sugestão: azul-marinho escuro com uns 80% de opacidade,
 borda fina clara (2 a 3 px) e um brilho leve no topo. Tem que deixar o texto branco bem legível por cima.
 
-### 3.3 Música (opcional)
+### 3.3 Extras opcionais (rodada 3)
+
+| Arquivo | Tamanho | Uso |
+|---|---|---|
+| `icon_pause.png` | 128x128 | Botão de pausa redondo no canto de cima, à esquerda, na partida (desenhado em 64x64). Botão inteiro, no estilo do `icon_settings.png` |
+| `band.png` | 1600x200 | A faixa escura embaixo do campo, onde ficam os botões (esticada na largura da tela). Terra/grama escura, sem desenhos no meio, que não chame atenção |
+
+### 3.4 Música (opcional)
 
 - `assets/music/menu.ogg` (ou `.wav`): música do menu, de 30 a 90 segundos, que faça **loop sem corte**, alegre, estilo
   jogo de futebol. Só use se for **criada por você** ou com licença livre (CC0). Se não der, deixe: o jogo já cria uma

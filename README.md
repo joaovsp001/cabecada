@@ -18,7 +18,7 @@ A 1 v 1 big-head football game. Pick a mode in the menu, then choose everything 
 Where the source code is and what each file does: see CODIGO.md (in Portuguese). What is still missing (art and code) is listed for the next person in PARA_GEMINI.md.
 
 ## Controls
-Touch (phones, or after the first touch): one row along the bottom, placed like Head Ball 2 (measured as fractions of the screen width): the two arrows on the left; kick, high kick, jump and power on the right. Their size and visibility can be changed in Configurações. New button pictures can be dropped into `assets/ui/` (see PARA_GEMINI_2.md).
+The match is framed like Head Ball 2: the field fills the whole screen width (on any phone shape) and ends at about 80% of the height; below it a dark band holds the buttons. Touch (phones, or after the first touch): the two arrows near the left corner, kick, high kick and jump near the right corner, the power button in the top-right corner (it fills up as the power charges) and pause in the top-left corner. Sizes and distances were measured on screenshots of the original (`touch_layout` in `src/main.rs`). In Configurações > Mover botões each button can be dragged anywhere (saved); size and visibility are there too. New button pictures can be dropped into `assets/ui/` (see PARA_GEMINI_2.md).
 Keyboard: A/D or arrows to move, W / Up / Space to jump, F / J / K to kick, G / L high kick, R / O power, P or Esc to pause, T to show or hide the on-screen buttons. With two players on one keyboard: player 1 A D W F G R, player 2 arrows K L O.
 
 ## Building

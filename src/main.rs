@@ -98,12 +98,13 @@ pub fn dim_screen(c: Color) {
 /// Share of the screen height kept for the button band under the field (Head Ball 2: the
 /// field ends at about 80% of the height and the buttons sit in a dark strip below it).
 pub const BAND: f32 = 0.20;
-/// The field picture is shown down to here (a little grass below the near touchline).
-pub const WORLD_BOTTOM: f32 = 700.0;
+/// Exact bottom of the visible stadium pitch (80% of 720p).
+pub const WORLD_BOTTOM: f32 = 576.0;
 
-/// The match camera: the whole width of the field fills the screen width (no stretched
-/// edges on long phones) and the field ends where the button band begins. On tall screens
-/// the field starts at the top and the band gets taller.
+/// The match camera: fits the exact 1280px width across the screen with zero horizontal
+/// stretching, mirroring, or overscan. `WORLD_BOTTOM` lands right at the top of the 20%
+/// bottom band on 16:9 and wider phones (`20:9`, cropping excess sky at the top); on
+/// taller screens (4:3) the field sits flush at `y = 0` and the bottom band grows taller.
 pub fn match_view() -> (f32, f32, f32) {
     let (sw, sh) = (screen_width(), screen_height());
     let s = sw / W;
@@ -114,8 +115,10 @@ pub fn match_view() -> (f32, f32, f32) {
 /// Where the button band starts, in the current view's units.
 pub fn band_top() -> f32 {
     let (ms, _, moy) = match_view();
+    let sh = screen_height();
+    let screen_top = (WORLD_BOTTOM * ms + moy).min(sh * (1.0 - BAND));
     let (s, _, oy) = view();
-    (WORLD_BOTTOM * ms + moy - oy) / s
+    (screen_top - oy) / s
 }
 pub fn circ(x: f32, y: f32, r: f32, c: Color) {
     draw_circle(px(x), py(y), sc(r), c);
@@ -315,6 +318,63 @@ fn with_a(c: Color, a: f32) -> Color {
 }
 fn mix(a: Color, b: Color, t: f32) -> Color {
     Color::new(a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t, a.a + (b.a - a.a) * t)
+}
+fn tint_col(c: Color, t: Color) -> Color {
+    Color::new(c.r * t.r, c.g * t.g, c.b * t.b, c.a * t.a)
+}
+
+/// Stylized team-colored mini-jersey & shorts connecting a character's caricature head to
+/// their boots (distinct kit per character matching `p1..6_boot.png`).
+pub(crate) fn draw_char_jersey(cid: usize, cx: f32, top_y: f32, scale: f32, flip: bool, lean: f32, tint: Color) {
+    // (jersey primary, stripe/collar trim, cartoon dark outline, shorts)
+    const KITS: [(u32, u32, u32, u32); 6] = [
+        (0x1f63d8, 0xffffff, 0x0c1938, 0x133880), // 0 Rafa: royal blue + white
+        (0xd9233a, 0xffca28, 0x380812, 0x222632), // 1 Zeca: crimson + gold
+        (0x18ae48, 0xffffff, 0x082e14, 0x0f5c28), // 2 Dudu: emerald + white
+        (0x9622db, 0xffffff, 0x2a0842, 0x451270), // 3 Lia: vivid purple + white
+        (0xe85c14, 0xffffff, 0x3b1606, 0x4a2410), // 4 Ruivo: flame orange + white
+        (0xf2b918, 0xffffff, 0x3c2b04, 0x352c10), // 5 Rei: royal gold + white
+    ];
+    let (j_hex, tr_hex, out_hex, sh_hex) = KITS[cid % KITS.len()];
+    let jersey = tint_col(hex(j_hex), tint);
+    let jersey_hi = tint_col(mix(hex(j_hex), WHITE, 0.28), tint);
+    let jersey_sh = tint_col(mix(hex(j_hex), BLACK, 0.28), tint);
+    let trim = tint_col(hex(tr_hex), tint);
+    let outline = tint_col(hex(out_hex), tint);
+    let shorts = tint_col(hex(sh_hex), tint);
+    let dir = if flip { -1.0 } else { 1.0 };
+    let x = cx + lean * scale;
+    let s = scale;
+    // Bold dark cartoon outline silhouette behind shoulders, torso and shorts
+    ellipse(x, top_y + 13.0 * s, 35.5 * s, 16.0 * s, outline);
+    rrect(x - 28.0 * s, top_y + 8.0 * s, 56.0 * s, 30.5 * s, 11.0 * s, outline);
+    // Shorts lower band
+    rrect(x - 24.5 * s, top_y + 24.0 * s, 49.0 * s, 11.5 * s, 5.0 * s, shorts);
+    rectv(x - 22.0 * s, top_y + 25.0 * s, 3.0 * s, 9.0 * s, with_a(trim, 0.85 * tint.a));
+    rectv(x + 19.0 * s, top_y + 25.0 * s, 3.0 * s, 9.0 * s, with_a(trim, 0.85 * tint.a));
+    // Rounded shoulders & jersey body
+    ellipse(x, top_y + 13.0 * s, 31.5 * s, 13.0 * s, jersey);
+    rrect(x - 24.5 * s, top_y + 9.0 * s, 49.0 * s, 17.5 * s, 8.0 * s, jersey);
+    // Depth shading on back & glossy chest highlight on front
+    ellipse(x - dir * 13.0 * s, top_y + 15.0 * s, 14.0 * s, 10.0 * s, with_a(jersey_sh, 0.52 * tint.a));
+    ellipse(x + dir * 10.0 * s, top_y + 12.0 * s, 15.0 * s, 7.5 * s, with_a(jersey_hi, 0.55 * tint.a));
+    // Twin vertical jersey stripes + lower waist trim
+    rectv(x + dir * 5.0 * s - 2.0 * s, top_y + 11.5 * s, 4.0 * s, 13.5 * s, with_a(trim, 0.92 * tint.a));
+    rectv(x + dir * 13.0 * s - 2.0 * s, top_y + 11.5 * s, 4.0 * s, 13.5 * s, with_a(trim, 0.92 * tint.a));
+    rectv(x - 24.5 * s, top_y + 23.0 * s, 49.0 * s, 2.8 * s, trim);
+    // V-neck collar peeking cleanly beneath the jaw
+    tri(
+        (x - 11.5 * s, top_y + 5.0 * s),
+        (x + 11.5 * s, top_y + 5.0 * s),
+        (x + dir * 2.0 * s, top_y + 16.5 * s),
+        trim,
+    );
+    tri(
+        (x - 7.8 * s, top_y + 5.0 * s),
+        (x + 7.8 * s, top_y + 5.0 * s),
+        (x + dir * 2.0 * s, top_y + 12.8 * s),
+        outline,
+    );
 }
 
 // ---------------------------------------------------------------- input
@@ -525,12 +585,15 @@ struct Particle {
     max: f32,
     r: f32,
     c: Color,
+    grav: f32,
+    behind: bool,
 }
 
 #[derive(Clone, Copy)]
 enum FxKind {
     Dust,
     Kick,
+    KickSwing,
     Boom,
 }
 
@@ -540,6 +603,59 @@ struct AnimFx {
     y: f32,
     size: f32,
     flip_x: bool,
+    life: f32,
+    max: f32,
+}
+
+struct IceShard {
+    x: f32,
+    y: f32,
+    vx: f32,
+    vy: f32,
+    rot: f32,
+    vrot: f32,
+    size: f32,
+    life: f32,
+    max: f32,
+    col: Color,
+}
+
+struct IceBeam {
+    from_x: f32,
+    from_y: f32,
+    to_x: f32,
+    to_y: f32,
+    life: f32,
+    max: f32,
+}
+
+struct ShockRing {
+    x: f32,
+    y: f32,
+    r0: f32,
+    r1: f32,
+    thick: f32,
+    life: f32,
+    max: f32,
+    col: Color,
+}
+
+struct ScorchMark {
+    x: f32,
+    life: f32,
+    max: f32,
+}
+
+struct ConfettiPiece {
+    x: f32,
+    y: f32,
+    vx: f32,
+    vy: f32,
+    rot: f32,
+    vrot: f32,
+    phase: f32,
+    piece: u8,
+    size: f32,
     life: f32,
     max: f32,
 }
@@ -571,7 +687,30 @@ pub struct App {
     my_ip: String,
     particles: Vec<Particle>,
     shake: f32,
+    shake_mag: f32,
+    shake_dur: f32,
     goal_anim: f32,
+    net_bulge: [f32; 2],
+    net_bulge_vel: [f32; 2],
+    net_hit_y: [f32; 2],
+    post_rattle: [f32; 2],
+    ball_squash: f32,
+    ball_squash_vert: bool,
+    ice_flash: f32,
+    ice_shiver: [f32; 2],
+    ice_pop: [f32; 2],
+    prev_frozen: [f32; 2],
+    prev_big: f32,
+    big_anim: f32,
+    big_shrink: f32,
+    prev_invis: f32,
+    prev_clone: f32,
+    prev_clones: [[f32; 2]; 2],
+    shards: Vec<IceShard>,
+    ice_beams: Vec<IceBeam>,
+    rings: Vec<ShockRing>,
+    scorches: Vec<ScorchMark>,
+    confetti: Vec<ConfettiPiece>,
     pub hud: HudFlags,
     pub held: [Input; 2],
     lost: bool,
@@ -624,7 +763,30 @@ impl App {
             my_ip: String::new(),
             particles: vec![],
             shake: 0.0,
+            shake_mag: 0.0,
+            shake_dur: 0.25,
             goal_anim: 0.0,
+            net_bulge: [0.0; 2],
+            net_bulge_vel: [0.0; 2],
+            net_hit_y: [430.0; 2],
+            post_rattle: [0.0; 2],
+            ball_squash: 0.0,
+            ball_squash_vert: false,
+            ice_flash: 0.0,
+            ice_shiver: [0.0; 2],
+            ice_pop: [1.0; 2],
+            prev_frozen: [0.0; 2],
+            prev_big: 0.0,
+            big_anim: 1.0,
+            big_shrink: 0.0,
+            prev_invis: 0.0,
+            prev_clone: 0.0,
+            prev_clones: [[0.0; 2]; 2],
+            shards: vec![],
+            ice_beams: vec![],
+            rings: vec![],
+            scorches: vec![],
+            confetti: vec![],
             hud: HudFlags::default(),
             held: [Input::default(); 2],
             lost: false,
@@ -648,6 +810,38 @@ impl App {
         }
     }
 
+    fn clear_vfx(&mut self) {
+        self.particles.clear();
+        self.fx.clear();
+        self.shards.clear();
+        self.ice_beams.clear();
+        self.rings.clear();
+        self.scorches.clear();
+        self.confetti.clear();
+        self.shake = 0.0;
+        self.shake_mag = 0.0;
+        self.shake_dur = 0.25;
+        self.goal_anim = 0.0;
+        self.net_bulge = [0.0; 2];
+        self.net_bulge_vel = [0.0; 2];
+        self.net_hit_y = [430.0; 2];
+        self.post_rattle = [0.0; 2];
+        self.ball_squash = 0.0;
+        self.ball_squash_vert = false;
+        self.ice_flash = 0.0;
+        self.ice_shiver = [0.0; 2];
+        self.ice_pop = [1.0; 2];
+        self.prev_frozen = [0.0; 2];
+        self.prev_big = 0.0;
+        self.big_anim = 1.0;
+        self.big_shrink = 0.0;
+        self.prev_invis = 0.0;
+        self.prev_clone = 0.0;
+        self.prev_clones = [[0.0; 2]; 2];
+        self.prev_ground = [true; 2];
+        self.prev_kick = [false; 2];
+    }
+
     /// Computer level in use: the cup sets its own, otherwise the menu choice.
     fn cpu_level(&self) -> usize {
         match self.tour {
@@ -664,10 +858,7 @@ impl App {
         self.over_t = 0.0;
         self.acc = 0.0;
         self.lost = false;
-        self.particles.clear();
-        self.fx.clear();
-        self.prev_ground = [true; 2];
-        self.prev_kick = [false; 2];
+        self.clear_vfx();
         if mode != Mode::Cpu {
             self.tour = None; // the cup is only against the computer
         }
@@ -773,43 +964,319 @@ impl App {
         inp
     }
 
+    fn add_shake(&mut self, dur: f32, mag: f32) {
+        if mag >= self.shake_mag || self.shake <= 0.02 {
+            self.shake = dur;
+            self.shake_dur = dur.max(0.05);
+            self.shake_mag = mag;
+        }
+    }
+
+    fn spawn_ice_shards(&mut self, x: f32, y: f32, n: usize, strong: bool) {
+        for i in 0..n {
+            let a = (i as f32 / n.max(1) as f32) * std::f32::consts::TAU + rand::gen_range(-0.3, 0.3);
+            let sp = if strong { rand::gen_range(180.0, 520.0) } else { rand::gen_range(110.0, 290.0) };
+            let c = match i % 3 {
+                0 => hex(0x88e6ff),
+                1 => hex(0xd4f7ff),
+                _ => WHITE,
+            };
+            self.shards.push(IceShard {
+                x: x + rand::gen_range(-34.0, 34.0),
+                y: y + rand::gen_range(-56.0, 44.0),
+                vx: a.cos() * sp,
+                vy: a.sin() * sp - if strong { rand::gen_range(160.0, 320.0) } else { rand::gen_range(80.0, 180.0) },
+                rot: rand::gen_range(0.0, std::f32::consts::TAU),
+                vrot: rand::gen_range(-11.0, 11.0),
+                size: if strong { rand::gen_range(9.0, 19.0) } else { rand::gen_range(5.0, 11.0) },
+                life: 0.0,
+                max: if strong { rand::gen_range(0.55, 0.95) } else { rand::gen_range(0.32, 0.55) },
+                col: c,
+            });
+        }
+    }
+
+    fn thaw_burst(&mut self, x: f32, y: f32) {
+        self.spawn_ice_shards(x, y + 6.0, 18, true);
+        self.rings.push(ShockRing {
+            x,
+            y: y + 10.0,
+            r0: 36.0,
+            r1: 155.0,
+            thick: 9.0,
+            life: 0.0,
+            max: 0.32,
+            col: hex(0xb8f4ff),
+        });
+        for _ in 0..14 {
+            let a = rand::gen_range(0.0, std::f32::consts::TAU);
+            let sp = rand::gen_range(60.0, 210.0);
+            self.particles.push(Particle {
+                x: x + rand::gen_range(-28.0, 28.0),
+                y: y + rand::gen_range(-40.0, 40.0),
+                vx: a.cos() * sp,
+                vy: a.sin() * sp - 40.0,
+                life: 0.0,
+                max: rand::gen_range(0.35, 0.65),
+                r: rand::gen_range(6.0, 13.0),
+                c: Color::new(0.82, 0.96, 1.0, 0.78),
+                grav: -35.0,
+                behind: false,
+            });
+        }
+        self.add_shake(0.14, 5.0);
+    }
+
+    fn spawn_goal_confetti(&mut self, gx: f32, gy: f32, n: usize) {
+        for i in 0..n {
+            let from_top = i >= n / 2;
+            let (x, y, vx, vy) = if from_top {
+                (
+                    rand::gen_range(60.0, W - 60.0),
+                    rand::gen_range(-10.0, 80.0),
+                    rand::gen_range(-80.0, 80.0),
+                    rand::gen_range(70.0, 210.0),
+                )
+            } else {
+                let dir = if gx > W * 0.5 { -1.0 } else { 1.0 };
+                (
+                    gx + rand::gen_range(-25.0, 25.0),
+                    gy + rand::gen_range(-50.0, 40.0),
+                    dir * rand::gen_range(120.0, 460.0) + rand::gen_range(-100.0, 100.0),
+                    rand::gen_range(-480.0, -140.0),
+                )
+            };
+            self.confetti.push(ConfettiPiece {
+                x,
+                y,
+                vx,
+                vy,
+                rot: rand::gen_range(0.0, std::f32::consts::TAU),
+                vrot: rand::gen_range(-9.0, 9.0),
+                phase: rand::gen_range(0.0, std::f32::consts::TAU),
+                piece: (i % 4) as u8,
+                size: rand::gen_range(16.0, 26.0),
+                life: 0.0,
+                max: rand::gen_range(1.6, 2.5),
+            });
+        }
+    }
+
     fn play_events(&mut self, ev: u32) {
+        let b = self.sim.ball;
         if ev & EV_KICK != 0 {
-            self.burst(self.sim.ball.x, self.sim.ball.y, 8, WHITE);
+            self.ball_squash = 0.075;
+            self.ball_squash_vert = b.vy.abs() > b.vx.abs() * 1.15;
+            self.fx.push(AnimFx {
+                kind: FxKind::Kick,
+                x: b.x,
+                y: b.y,
+                size: 112.0,
+                flip_x: b.vx < 0.0,
+                life: 0.0,
+                max: 0.22,
+            });
+            self.burst(b.x, b.y, 7, WHITE);
+            self.burst(b.x, b.y, 4, hex(0xffe14a));
+        }
+        if ev & EV_HEAD != 0 {
+            self.ball_squash = 0.070;
+            self.ball_squash_vert = b.vy.abs() > b.vx.abs();
+            self.burst(b.x, b.y, 6, WHITE);
+        }
+        if ev & EV_BOUNCE != 0 {
+            self.ball_squash = 0.072;
+            self.ball_squash_vert = false;
+            if b.y + b.r() >= GROUND - 16.0 {
+                if b.big > 0.0 {
+                    self.dust_sized(b.x, GROUND, 10, 120.0);
+                    self.add_shake(0.11, 3.5);
+                } else if b.invis > 0.0 {
+                    self.dust_sized(b.x, GROUND, 4, 62.0);
+                }
+            }
+        }
+        if ev & EV_POST != 0 {
+            self.ball_squash = 0.075;
+            self.ball_squash_vert = b.vy.abs() > b.vx.abs();
+            let gi = if b.x < W * 0.5 { 0 } else { 1 };
+            self.post_rattle[gi] = 0.24;
+            self.burst(b.x, b.y, 6, hex(0xfff0a8));
+        }
+        if ev & EV_NET_HIT != 0 && ev & EV_GOAL == 0 {
+            let gi = if b.x < W * 0.5 { 0 } else { 1 };
+            self.net_bulge_vel[gi] = 12.0;
+            self.net_hit_y[gi] = b.y.clamp(BAR_Y + 30.0, GROUND - 20.0);
         }
         if ev & EV_GOAL != 0 {
             self.goal_anim = 0.0;
-            let gx = if self.sim.last_scorer == 0 { W - 50.0 } else { 50.0 };
+            let gi = if self.sim.last_scorer == 0 { 1 } else { 0 };
+            self.net_bulge_vel[gi] = 17.5;
+            self.net_hit_y[gi] = b.y.clamp(BAR_Y + 30.0, GROUND - 20.0);
+            self.add_shake(0.34, 11.5);
+            let gx = if self.sim.last_scorer == 0 { W - 64.0 } else { 64.0 };
+            self.spawn_goal_confetti(gx, 420.0, 52);
             for c in [hex(0xffd34d), hex(0xff5a5a), hex(0x5ad1ff), WHITE] {
-                self.burst(gx, 470.0, 14, c);
+                self.burst(gx, 420.0, 10, c);
             }
         }
         if ev & EV_STUN != 0 {
-            self.shake = 0.25;
+            if b.fire > 0.0 {
+                self.add_shake(0.26, 10.5);
+                self.rings.push(ShockRing {
+                    x: b.x,
+                    y: b.y,
+                    r0: 24.0,
+                    r1: 145.0,
+                    thick: 10.0,
+                    life: 0.0,
+                    max: 0.24,
+                    col: hex(0xff9224),
+                });
+                self.burst(b.x, b.y, 16, hex(0xff8020));
+            } else {
+                self.add_shake(0.22, 6.5);
+            }
         }
         if ev & EV_FIRE != 0 {
-            self.shake = 0.15;
-            self.burst(self.sim.ball.x, self.sim.ball.y, 16, hex(0xffa020));
+            self.add_shake(0.18, 7.5);
+            self.rings.push(ShockRing {
+                x: b.x,
+                y: b.y,
+                r0: 24.0,
+                r1: 120.0,
+                thick: 8.0,
+                life: 0.0,
+                max: 0.25,
+                col: hex(0xffa020),
+            });
+            self.burst(b.x, b.y, 18, hex(0xffa020));
         }
         if ev & EV_BOOM != 0 {
-            self.shake = 0.35;
+            self.add_shake(0.38, 15.0);
             self.fx.push(AnimFx {
                 kind: FxKind::Boom,
-                x: self.sim.ball.x,
-                y: self.sim.ball.y,
-                size: 260.0,
+                x: b.x,
+                y: b.y,
+                size: 295.0,
                 flip_x: false,
                 life: 0.0,
-                max: 0.48,
+                max: 0.50,
             });
+            self.rings.push(ShockRing {
+                x: b.x,
+                y: b.y,
+                r0: 22.0,
+                r1: BOMB_RADIUS * 1.08,
+                thick: 12.0,
+                life: 0.0,
+                max: 0.34,
+                col: hex(0xff7a20),
+            });
+            self.scorches.push(ScorchMark { x: b.x.clamp(40.0, W - 40.0), life: 0.0, max: 5.5 });
             for c in [hex(0xff5a1a), hex(0xffd34d), hex(0x555555)] {
-                self.burst(self.sim.ball.x, self.sim.ball.y, 14, c);
+                self.burst(b.x, b.y, 16, c);
             }
         }
-        if ev & EV_FREEZE != 0 {
-            for c in [hex(0x9fe6ff), WHITE] {
-                self.burst(self.sim.ball.x, self.sim.ball.y, 12, c);
+        if ev & (EV_ICE_CAST | EV_FREEZE) != 0 {
+            self.ice_flash = 0.28;
+            self.add_shake(0.16, 5.5);
+            for i in 0..2 {
+                let target = self.sim.p[i];
+                if target.frozen > 0.0 && (self.prev_frozen[i] <= 0.0 || target.frozen > FREEZE_TIME - 0.2) {
+                    let caster = self.sim.p[1 - i];
+                    self.ice_shiver[i] = 0.24;
+                    self.ice_pop[i] = 0.0;
+                    self.ice_beams.push(IceBeam {
+                        from_x: caster.x,
+                        from_y: caster.y - 6.0,
+                        to_x: target.x,
+                        to_y: target.y + 4.0,
+                        life: 0.0,
+                        max: 0.42,
+                    });
+                    self.rings.push(ShockRing {
+                        x: target.x,
+                        y: target.y + 8.0,
+                        r0: 26.0,
+                        r1: 150.0,
+                        thick: 9.0,
+                        life: 0.0,
+                        max: 0.32,
+                        col: hex(0x74e8ff),
+                    });
+                    for c in [hex(0x9fe6ff), WHITE] {
+                        self.burst(target.x, target.y, 10, c);
+                    }
+                }
             }
+        }
+        if ev & EV_ICE_CRACK != 0 {
+            for i in 0..2 {
+                let p = self.sim.p[i];
+                if p.frozen > 0.0 {
+                    self.ice_shiver[i] = 0.16;
+                    self.spawn_ice_shards(p.x, p.y + 6.0, 6, false);
+                    self.add_shake(0.08, 3.0);
+                }
+            }
+        }
+        if ev & EV_BIG_CAST != 0 {
+            self.big_anim = 0.001;
+            self.big_shrink = 0.0;
+            self.rings.push(ShockRing {
+                x: b.x,
+                y: b.y,
+                r0: BALL_R,
+                r1: 150.0,
+                thick: 9.0,
+                life: 0.0,
+                max: 0.34,
+                col: hex(0xffd34d),
+            });
+            self.burst(b.x, b.y, 14, hex(0xffe14a));
+        }
+        if ev & EV_INVIS_CAST != 0 {
+            self.rings.push(ShockRing {
+                x: b.x,
+                y: b.y,
+                r0: 18.0,
+                r1: 110.0,
+                thick: 7.0,
+                life: 0.0,
+                max: 0.30,
+                col: hex(0xa8f2ff),
+            });
+            for _ in 0..18 {
+                let a = rand::gen_range(0.0, std::f32::consts::TAU);
+                let sp = rand::gen_range(40.0, 180.0);
+                self.particles.push(Particle {
+                    x: b.x + rand::gen_range(-14.0, 14.0),
+                    y: b.y + rand::gen_range(-14.0, 14.0),
+                    vx: a.cos() * sp,
+                    vy: a.sin() * sp - 30.0,
+                    life: 0.0,
+                    max: rand::gen_range(0.28, 0.55),
+                    r: rand::gen_range(4.0, 10.0),
+                    c: Color::new(0.84, 0.96, 1.0, 0.85),
+                    grav: -50.0,
+                    behind: false,
+                });
+            }
+        }
+        if ev & EV_CLONE_CAST != 0 {
+            self.rings.push(ShockRing {
+                x: b.x,
+                y: b.y,
+                r0: 20.0,
+                r1: 120.0,
+                thick: 8.0,
+                life: 0.0,
+                max: 0.28,
+                col: WHITE,
+            });
+            self.burst(b.x, b.y, 14, hex(0xb8f0ff));
+            self.burst(b.x, b.y, 8, WHITE);
         }
         let g = self.sfx_gain();
         let Some(s) = self.sounds.as_ref() else { return };
@@ -822,29 +1289,43 @@ impl App {
             (EV_BOUNCE, &s.bounce, 0.5),
             (EV_POST, &s.post, 0.7),
             (EV_WHISTLE, &s.whistle, 0.6),
-            (EV_GOAL, &s.goal, 0.8),
+            (EV_GOAL, &s.goal, 0.85),
             (EV_BEEP, &s.beep, 0.6),
             (EV_POWER, &s.power, 0.7),
             (EV_FIRE, &s.power, 0.9),
             (EV_STUN, &s.stun, 0.7),
             (EV_BOOM, &s.goal, 1.0),
             (EV_BOOM, &s.bounce, 1.0),
-            (EV_FREEZE, &s.post, 0.6),
+            (EV_ICE_CRACK, &s.ice_crack, 0.80),
+            (EV_THAW, &s.ice_shatter, 0.90),
+            (EV_BIG_CAST, &s.power_pop, 0.85),
+            (EV_INVIS_CAST, &s.power_pop, 0.75),
+            (EV_CLONE_CAST, &s.power_pop, 0.85),
         ];
         for (bit, snd, vol) in list {
             if ev & bit != 0 {
                 s.play(snd, vol * g);
             }
         }
+        if ev & (EV_ICE_CAST | EV_FREEZE) != 0 {
+            s.play(&s.ice_cast, 0.85 * g);
+        }
+        if ev & EV_NET_HIT != 0 && ev & EV_GOAL == 0 {
+            s.play(&s.bounce, 0.35 * g);
+        }
     }
 
-    /// A puff of dust on the grass (landing, take-off).
+    /// A puff of dust on the grass (landing, take-off, big-ball bounce).
     fn dust(&mut self, x: f32, y: f32, n: usize) {
+        self.dust_sized(x, y, n, 86.0);
+    }
+
+    fn dust_sized(&mut self, x: f32, y: f32, n: usize, size: f32) {
         self.fx.push(AnimFx {
             kind: FxKind::Dust,
             x,
-            y: y - 22.0,
-            size: 86.0,
+            y: y - size * 0.25,
+            size,
             flip_x: rand::gen_range(0, 2) == 0,
             life: 0.0,
             max: 0.36,
@@ -860,40 +1341,122 @@ impl App {
                 max: rand::gen_range(0.25, 0.5),
                 r: rand::gen_range(4.0, 8.0),
                 c: Color::new(0.88, 0.84, 0.7, 1.0),
+                grav: 500.0,
+                behind: false,
             });
         }
     }
 
-    /// Jump / landing dust and kick swooshes, worked out from how the players moved
-    /// (so they also show on the joining device).
-    fn detect_fx(&mut self) {
+    /// Jump / landing dust, subtle kick swooshes, and state-transition VFX (so joining
+    /// network clients also see freeze, thaw, big, invis, and clone transitions cleanly).
+    fn detect_fx(&mut self, ev: u32) {
+        let mut thawed_any = false;
         for i in 0..2 {
             let p = self.sim.p[i];
-            let near_grass = p.y + FEET > GROUND - 30.0;
+            let near_grass = p.y + FEET > GROUND - 34.0;
             if p.on_ground && !self.prev_ground[i] && near_grass {
                 self.dust(p.x, GROUND, 7);
                 self.play_one(|s| (&s.land, 0.35));
-            } else if !p.on_ground && self.prev_ground[i] && p.vy < -200.0 && near_grass {
+            } else if !p.on_ground && self.prev_ground[i] && p.vy < -220.0 && near_grass {
                 self.dust(p.x, GROUND, 5);
                 self.play_one(|s| (&s.jump, 0.3));
             }
             self.prev_ground[i] = p.on_ground;
             let kicking = p.kick_t >= 0.0;
             if kicking && !self.prev_kick[i] {
+                // Subtle air swing swoosh only — bright impact sparks fire exclusively on EV_KICK
                 let (fx, fy) = p.foot();
                 self.fx.push(AnimFx {
-                    kind: FxKind::Kick,
-                    x: fx + p.side * 22.0,
+                    kind: FxKind::KickSwing,
+                    x: fx + p.side * 24.0,
                     y: fy - 6.0,
-                    size: 92.0,
+                    size: 72.0,
                     flip_x: p.side < 0.0,
                     life: 0.0,
-                    max: 0.22,
+                    max: 0.14,
                 });
-                self.burst(fx + p.side * 20.0, fy, 4, with_a(WHITE, 1.0));
             }
             self.prev_kick[i] = kicking;
+            // Freeze start / thaw shatter detection
+            if p.frozen > 0.0 && self.prev_frozen[i] <= 0.0 && ev & (EV_ICE_CAST | EV_FREEZE) == 0 {
+                let caster = self.sim.p[1 - i];
+                self.ice_flash = 0.28;
+                self.ice_shiver[i] = 0.22;
+                self.ice_pop[i] = 0.0;
+                self.ice_beams.push(IceBeam {
+                    from_x: caster.x,
+                    from_y: caster.y - 6.0,
+                    to_x: p.x,
+                    to_y: p.y + 4.0,
+                    life: 0.0,
+                    max: 0.42,
+                });
+            } else if p.frozen <= 0.0 && self.prev_frozen[i] > 0.0 {
+                self.thaw_burst(p.x, p.y);
+                thawed_any = true;
+            }
+            self.prev_frozen[i] = p.frozen;
         }
+        if ev & EV_THAW != 0 && !thawed_any {
+            // Defensive fallback if EV_THAW arrived after a single-frame freeze
+            let p = self.sim.p[1];
+            self.thaw_burst(p.x, p.y);
+        }
+        let b = self.sim.ball;
+        // Giant ball inflation / deflation transition
+        if b.big > 0.0 && self.prev_big <= 0.0 && ev & EV_BIG_CAST == 0 {
+            self.big_anim = 0.001;
+            self.big_shrink = 0.0;
+            self.rings.push(ShockRing {
+                x: b.x,
+                y: b.y,
+                r0: BALL_R,
+                r1: 150.0,
+                thick: 9.0,
+                life: 0.0,
+                max: 0.34,
+                col: hex(0xffd34d),
+            });
+        } else if b.big <= 0.0 && self.prev_big > 0.0 {
+            self.big_shrink = 0.24;
+            self.burst(b.x, b.y, 10, hex(0xffe14a));
+        }
+        self.prev_big = b.big;
+        // Invisible ball dissolve / re-materialization
+        if b.invis <= 0.0 && self.prev_invis > 0.0 {
+            self.rings.push(ShockRing {
+                x: b.x,
+                y: b.y,
+                r0: 14.0,
+                r1: 88.0,
+                thick: 6.0,
+                life: 0.0,
+                max: 0.24,
+                col: WHITE,
+            });
+            self.burst(b.x, b.y, 10, hex(0xd0f6ff));
+        }
+        self.prev_invis = b.invis;
+        // Clone tracking + pop poof when clones expire
+        if b.clone_t > 0.0 {
+            self.prev_clones = [[b.clones[0][0], b.clones[0][1]], [b.clones[1][0], b.clones[1][1]]];
+        } else if self.prev_clone > 0.0 {
+            let last = self.prev_clones;
+            for [cx, cy] in last {
+                self.rings.push(ShockRing {
+                    x: cx,
+                    y: cy,
+                    r0: 14.0,
+                    r1: 72.0,
+                    thick: 6.0,
+                    life: 0.0,
+                    max: 0.24,
+                    col: WHITE,
+                });
+                self.burst(cx, cy, 10, hex(0xe8f6ff));
+            }
+        }
+        self.prev_clone = b.clone_t;
     }
 
     fn play_one(&self, pick: impl Fn(&audio::Sounds) -> (&macroquad::audio::Sound, f32)) {
@@ -966,9 +1529,20 @@ impl App {
 
     fn burst(&mut self, x: f32, y: f32, n: usize, c: Color) {
         for i in 0..n {
-            let a = i as f32 / n as f32 * 6.283 + rand::gen_range(0.0, 0.6);
+            let a = i as f32 / n.max(1) as f32 * 6.283 + rand::gen_range(0.0, 0.6);
             let sp = rand::gen_range(120.0, 380.0);
-            self.particles.push(Particle { x, y, vx: a.cos() * sp, vy: a.sin() * sp - 100.0, life: 0.0, max: rand::gen_range(0.3, 0.7), r: rand::gen_range(2.5, 5.5), c });
+            self.particles.push(Particle {
+                x,
+                y,
+                vx: a.cos() * sp,
+                vy: a.sin() * sp - 100.0,
+                life: 0.0,
+                max: rand::gen_range(0.3, 0.7),
+                r: rand::gen_range(2.5, 5.5),
+                c,
+                grav: 600.0,
+                behind: false,
+            });
         }
     }
 
@@ -1029,13 +1603,35 @@ impl App {
             self.over_t = 0.0;
         }
         self.play_events(ev);
-        self.detect_fx();
-        // effects
+        self.detect_fx(ev);
+        // timers & spring animations
         self.shake = (self.shake - dt).max(0.0);
+        if self.shake <= 0.0 {
+            self.shake_mag = 0.0;
+        }
         self.goal_anim += dt;
+        self.ball_squash = (self.ball_squash - dt).max(0.0);
+        self.ice_flash = (self.ice_flash - dt).max(0.0);
+        if self.sim.ball.big > 0.0 {
+            self.big_anim = (self.big_anim + dt).min(1.0);
+        }
+        self.big_shrink = (self.big_shrink - dt).max(0.0);
+        for i in 0..2 {
+            self.ice_shiver[i] = (self.ice_shiver[i] - dt).max(0.0);
+            self.ice_pop[i] = (self.ice_pop[i] + dt / 0.12).min(1.0);
+            self.post_rattle[i] = (self.post_rattle[i] - dt).max(0.0);
+            // Underdamped net bulge spring
+            let acc = -150.0 * self.net_bulge[i] - 6.5 * self.net_bulge_vel[i];
+            self.net_bulge_vel[i] += acc * dt;
+            self.net_bulge[i] += self.net_bulge_vel[i] * dt;
+            if self.net_bulge[i].abs() < 0.002 && self.net_bulge_vel[i].abs() < 0.01 {
+                self.net_bulge[i] = 0.0;
+                self.net_bulge_vel[i] = 0.0;
+            }
+        }
         for p in self.particles.iter_mut() {
             p.life += dt;
-            p.vy += 600.0 * dt;
+            p.vy += p.grav * dt;
             p.x += p.vx * dt;
             p.y += p.vy * dt;
         }
@@ -1044,16 +1640,108 @@ impl App {
             f.life += dt;
         }
         self.fx.retain(|f| f.life < f.max);
-        if self.sim.ball.fire > 0.0 && rand::gen_range(0.0, 1.0) < 0.8 {
-            let b = self.sim.ball;
-            self.particles.push(Particle { x: b.x, y: b.y, vx: -b.vx * 0.1 + rand::gen_range(-40.0, 40.0), vy: -b.vy * 0.1 - 60.0, life: 0.0, max: 0.35, r: rand::gen_range(6.0, 12.0), c: hex(0xff8a1a) });
+        for sh in self.shards.iter_mut() {
+            sh.life += dt;
+            sh.vy += 1100.0 * dt;
+            sh.x += sh.vx * dt;
+            sh.y += sh.vy * dt;
+            sh.rot += sh.vrot * dt;
         }
+        self.shards.retain(|sh| sh.life < sh.max);
+        for ib in self.ice_beams.iter_mut() {
+            ib.life += dt;
+        }
+        self.ice_beams.retain(|ib| ib.life < ib.max);
+        for r in self.rings.iter_mut() {
+            r.life += dt;
+        }
+        self.rings.retain(|r| r.life < r.max);
+        for sc in self.scorches.iter_mut() {
+            sc.life += dt;
+        }
+        self.scorches.retain(|sc| sc.life < sc.max);
+        let t_now = self.now as f32;
+        for cf in self.confetti.iter_mut() {
+            cf.life += dt;
+            cf.vy += 190.0 * dt;
+            cf.vx *= 1.0 - 1.6 * dt;
+            cf.x += (cf.vx + (t_now * 5.5 + cf.phase).sin() * 55.0) * dt;
+            cf.y += cf.vy * dt;
+            cf.rot += cf.vrot * dt;
+        }
+        self.confetti.retain(|cf| cf.life < cf.max && cf.y < WORLD_BOTTOM + 60.0);
+
+        // Continuous power & celebration emitters
         let b = self.sim.ball;
-        if b.ice > 0.0 && rand::gen_range(0.0, 1.0) < 0.7 {
-            self.particles.push(Particle { x: b.x, y: b.y, vx: rand::gen_range(-60.0, 60.0), vy: rand::gen_range(-80.0, 0.0), life: 0.0, max: 0.4, r: rand::gen_range(2.5, 5.0), c: hex(0xbff0ff) });
+        if b.fire > 0.0 {
+            let sp = (b.vx * b.vx + b.vy * b.vy).sqrt().max(1.0);
+            let (dx, dy) = (-b.vx / sp, -b.vy / sp);
+            for k in 0..2 {
+                let c = if k == 0 { hex(0xffb420) } else { hex(0xff4a10) };
+                self.particles.push(Particle {
+                    x: b.x + dx * rand::gen_range(8.0, 26.0) + rand::gen_range(-10.0, 10.0),
+                    y: b.y + dy * rand::gen_range(8.0, 26.0) + rand::gen_range(-10.0, 10.0),
+                    vx: dx * rand::gen_range(80.0, 220.0) + rand::gen_range(-40.0, 40.0),
+                    vy: dy * rand::gen_range(80.0, 220.0) + rand::gen_range(-40.0, 40.0),
+                    life: 0.0,
+                    max: rand::gen_range(0.18, 0.34),
+                    r: rand::gen_range(6.0, 14.0),
+                    c,
+                    grav: -80.0,
+                    behind: true,
+                });
+            }
         }
-        if b.bomb > 0.0 && rand::gen_range(0.0, 1.0) < 0.5 {
-            self.particles.push(Particle { x: b.x, y: b.y - b.r(), vx: rand::gen_range(-30.0, 30.0), vy: -120.0, life: 0.0, max: 0.3, r: 3.0, c: hex(0xffe14a) });
+        // Drifting snowflakes & frosty mist around any frozen player
+        for i in 0..2 {
+            let p = self.sim.p[i];
+            if p.frozen > 0.0 && rand::gen_range(0.0, 1.0) < 0.65 {
+                let mist = rand::gen_range(0, 3) == 0;
+                self.particles.push(Particle {
+                    x: p.x + rand::gen_range(-78.0, 78.0),
+                    y: p.y + rand::gen_range(-90.0, 68.0),
+                    vx: rand::gen_range(-24.0, 24.0),
+                    vy: if mist { rand::gen_range(-28.0, -8.0) } else { rand::gen_range(12.0, 46.0) },
+                    life: 0.0,
+                    max: rand::gen_range(0.45, 0.90),
+                    r: if mist { rand::gen_range(7.0, 13.0) } else { rand::gen_range(2.2, 4.4) },
+                    c: if mist { Color::new(0.75, 0.94, 1.0, 0.45) } else { Color::new(0.92, 0.98, 1.0, 0.95) },
+                    grav: if mist { -15.0 } else { 18.0 },
+                    behind: false,
+                });
+            }
+        }
+        if b.bomb > 0.0 {
+            let rate = if b.bomb < 0.9 { 0.9 } else { 0.55 };
+            if rand::gen_range(0.0, 1.0) < rate {
+                self.particles.push(Particle {
+                    x: b.x + rand::gen_range(-6.0, 6.0),
+                    y: b.y - b.r() * 1.05,
+                    vx: rand::gen_range(-65.0, 65.0),
+                    vy: rand::gen_range(-190.0, -90.0),
+                    life: 0.0,
+                    max: rand::gen_range(0.18, 0.34),
+                    r: rand::gen_range(2.5, 5.0),
+                    c: if rand::gen_range(0, 2) == 0 { hex(0xffe14a) } else { hex(0xff6a20) },
+                    grav: 360.0,
+                    behind: false,
+                });
+            }
+        }
+        if self.sim.phase == Phase::Goal && rand::gen_range(0.0, 1.0) < 0.7 {
+            self.confetti.push(ConfettiPiece {
+                x: rand::gen_range(50.0, W - 50.0),
+                y: rand::gen_range(-12.0, 24.0),
+                vx: rand::gen_range(-50.0, 50.0),
+                vy: rand::gen_range(90.0, 200.0),
+                rot: rand::gen_range(0.0, std::f32::consts::TAU),
+                vrot: rand::gen_range(-8.0, 8.0),
+                phase: rand::gen_range(0.0, std::f32::consts::TAU),
+                piece: rand::gen_range(0, 4) as u8,
+                size: rand::gen_range(16.0, 24.0),
+                life: 0.0,
+                max: rand::gen_range(1.6, 2.4),
+            });
         }
     }
 
@@ -1064,13 +1752,12 @@ impl App {
         self.paused = false;
         self.over_t = 0.0;
         self.ai_both = false;
-        self.particles.clear();
-        self.shake = 0.0;
+        self.clear_vfx();
         self.touch_ui = name.contains("touch");
         self.set.btn_pos = [[0; 2]; 6];
         if name == "play_touch_moved" {
             self.set.btn_pos[Btn::Kick.slot()] = [560, 640];
-            self.set.btn_pos[Btn::Power.slot()] = [940, 905];
+            self.set.btn_pos[Btn::Power.slot()] = [680, 905];
         }
         self.tour = match name {
             "countdown_tour" => Some(Tour { round: 1 }),
@@ -1123,15 +1810,18 @@ impl App {
                 self.sim.time_left = 74.0;
                 self.sim.score = [1, 1];
                 self.sim.p[0].power = 0.65;
-                self.sim.p[1].power = 1.0;
-                let b = &mut self.sim.ball;
+                self.sim.p[1].power = if name.starts_with("pw_") { 0.55 } else { 1.0 };
                 match name {
                     "goal" => {
                         self.sim.score = [2, 1];
                         self.sim.phase = Phase::Goal;
                         self.sim.phase_t = GOAL_PAUSE;
                         self.sim.last_scorer = 0;
-                        self.goal_anim = 0.3;
+                        self.sim.ball = Ball { x: W - 46.0, y: 452.0, vx: 300.0, vy: 40.0, ..Default::default() };
+                        self.goal_anim = 0.0;
+                        self.net_bulge_vel[1] = 18.0;
+                        self.net_hit_y[1] = 438.0;
+                        self.spawn_goal_confetti(W - 64.0, 420.0, 56);
                     }
                     "over" => {
                         self.sim.score = [3, 2];
@@ -1171,25 +1861,50 @@ impl App {
                         self.sim.p[0].power = 1.0;
                     }
                     "pw_fire" => {
-                        *b = Ball { x: 560.0, y: 430.0, vx: 1100.0, vy: -150.0, fire: 1.1, fire_owner: 0, ..Default::default() };
+                        self.sim.ball = Ball { x: 560.0, y: 395.0, vx: 1200.0, vy: -90.0, fire: 1.1, fire_owner: 0, ..Default::default() };
                     }
                     "pw_big" => {
-                        *b = Ball { x: 640.0, y: 420.0, big: 7.0, ..Default::default() };
+                        self.sim.p[0].pkind = PK_BIG;
+                        self.sim.ball = Ball { x: 640.0, y: 390.0, big: 7.0, ..Default::default() };
+                        self.prev_big = 7.0;
+                        self.big_anim = 0.14;
+                        self.rings.push(ShockRing { x: 640.0, y: 390.0, r0: BALL_R, r1: 155.0, thick: 9.0, life: 0.0, max: 0.45, col: hex(0xffd34d) });
                     }
                     "pw_ice" => {
-                        *b = Ball { x: 760.0, y: 440.0, vx: 500.0, ice: 1.4, ice_owner: 0, ..Default::default() };
-                        self.sim.p[1].frozen = 2.6;
-                        self.sim.p[1].stun = 2.6;
+                        self.sim.p[0].pkind = PK_ICE;
+                        self.sim.ball = Ball { x: 540.0, y: 400.0, vx: 180.0, vy: -120.0, ..Default::default() };
+                        // Showcase reworked HB2 Freeze: cracked ice block + frost decal + frost beam + snowflakes
+                        self.sim.p[1].frozen = FREEZE_TIME * 0.38;
+                        self.sim.p[1].stun = 0.0;
+                        self.prev_frozen[1] = self.sim.p[1].frozen;
+                        self.ice_pop[1] = 1.0;
+                        self.ice_shiver[1] = 0.14;
+                        self.ice_beams.push(IceBeam {
+                            from_x: self.sim.p[0].x,
+                            from_y: self.sim.p[0].y - 6.0,
+                            to_x: self.sim.p[1].x,
+                            to_y: self.sim.p[1].y + 4.0,
+                            life: 0.0,
+                            max: 0.50,
+                        });
                     }
                     "pw_invis" => {
-                        *b = Ball { x: 640.0, y: 420.0, invis: 4.0, invis_owner: 0, ..Default::default() };
+                        self.sim.p[0].pkind = PK_INVIS;
+                        self.sim.ball = Ball { x: 640.0, y: 390.0, invis: 4.0, invis_owner: 0, ..Default::default() };
+                        self.prev_invis = 4.0;
+                        self.rings.push(ShockRing { x: 640.0, y: 390.0, r0: 20.0, r1: 115.0, thick: 7.0, life: 0.0, max: 0.42, col: hex(0xa8f2ff) });
                     }
                     "pw_bomb" => {
-                        *b = Ball { x: 640.0, y: 420.0, bomb: 1.6, bomb_owner: 0, ..Default::default() };
+                        self.sim.p[0].pkind = PK_BOMB;
+                        self.sim.ball = Ball { x: 640.0, y: 395.0, bomb: 0.78, bomb_owner: 0, ..Default::default() };
                     }
                     "pw_clone" => {
-                        *b = Ball { x: 560.0, y: 430.0, vx: 700.0, vy: -300.0, clone_t: 4.0, ..Default::default() };
-                        b.clones = [[600.0, 330.0, 700.0, -500.0], [600.0, 480.0, 800.0, 100.0]];
+                        self.sim.p[0].pkind = PK_CLONE;
+                        let mut b = Ball { x: 560.0, y: 395.0, vx: 650.0, vy: -240.0, clone_t: 4.0, ..Default::default() };
+                        b.clones = [[620.0, 295.0, 620.0, -340.0], [600.0, 445.0, 740.0, 90.0]];
+                        self.sim.ball = b;
+                        self.prev_clone = 4.0;
+                        self.prev_clones = [[620.0, 295.0], [600.0, 445.0]];
                     }
                     _ => {}
                 }
@@ -1628,10 +2343,12 @@ impl App {
         text_o("Quartas  OK        Semifinal  OK        Final  OK", 640.0, 254.0, 22.0, hex(0xffe14a));
         // Winner + Trophy on the podium (drawn with the background's own crop)
         with_view(cover_view(), || {
+            let bob = (t * 3.0).sin() * 5.0;
             ellipse(590.0, 548.0, 82.0, 16.0, with_a(BLACK, 0.32));
             ellipse(740.0, 548.0, 60.0, 14.0, with_a(BLACK, 0.30));
+            draw_char_jersey(c0, 590.0, 476.0 + bob * 0.45, 1.32, false, 0.0, WHITE);
             tex_center(&self.assets.boots[c0], 596.0, 526.0, 96.0, 64.0, WHITE, false, -0.04);
-            tex_center(&self.assets.heads[c0], 590.0, 438.0 + (t * 3.0).sin() * 5.0, 186.0, 186.0, WHITE, false, (t * 1.6).sin() * 0.05);
+            tex_center(&self.assets.heads[c0], 590.0, 426.0 + bob, 186.0, 186.0, WHITE, false, (t * 1.6).sin() * 0.05);
             tex_center(&self.assets.trophy, 742.0, 458.0 + (t * 2.4 + 1.0).sin() * 4.0, 175.0, 175.0, WHITE, false, (t * 1.2).sin() * 0.04);
         });
         text_o("CAMPEÃO!", 640.0, 142.0, 96.0, hex(0xffd34d));
@@ -1660,19 +2377,139 @@ impl App {
     fn draw_field(&self, live: bool) {
         let bg = &self.assets.stadium_bgs[self.sim.stadium as usize % self.assets.stadium_bgs.len()];
         tex_draw(bg, 0.0, 0.0, W, H, WHITE, false, 0.0);
+        // Goal / match-over celebratory floodlight beams + subtle crowd flash
         if live && (self.sim.phase == Phase::Goal || self.sim.phase == Phase::Over) {
             let t = self.now as f32;
-            let pulse = 0.05 + 0.07 * (t * 10.0).sin().abs();
-            rectv(0.0, 0.0, W, H, with_a(hex(0xffe14a), pulse));
+            let pulse = 0.04 + 0.05 * (t * 9.0).sin().abs();
+            rectv(0.0, 0.0, W, WORLD_BOTTOM, with_a(hex(0xffe14a), pulse));
+            for (i, lx) in [220.0f32, 1060.0].iter().enumerate() {
+                let dir = if i == 0 { 1.0 } else { -1.0 };
+                let sweep = (t * 3.8 + i as f32 * 2.1).sin() * 190.0;
+                let tx = 640.0 + sweep + dir * 80.0;
+                tri((*lx, 0.0), (tx - 115.0, WORLD_BOTTOM), (tx + 115.0, WORLD_BOTTOM), with_a(hex(0xfff4b0), 0.075));
+            }
         }
     }
 
-    fn draw_goal_frames(&self) {
-        let gw = 152.0;
-        let gh = GROUND - BAR_Y + 26.0;
-        let gy = BAR_Y - 12.0;
-        tex_draw(&self.assets.goal_left, -8.0, gy, gw, gh, WHITE, false, 0.0);
-        tex_draw(&self.assets.goal_left, W - gw + 8.0, gy, gw, gh, WHITE, true, 0.0);
+    fn draw_scorch_marks(&self) {
+        for sc in &self.scorches {
+            let k = 1.0 - (sc.life / sc.max).clamp(0.0, 1.0);
+            let a = (k * 1.4).min(1.0);
+            ellipse(sc.x, GROUND + 1.0, 62.0, 14.0, with_a(hex(0x161210), 0.42 * a));
+            ellipse(sc.x, GROUND + 1.0, 38.0, 8.5, with_a(BLACK, 0.50 * a));
+            if sc.life < 0.7 {
+                let glow = 1.0 - sc.life / 0.7;
+                ellipse(sc.x, GROUND + 1.0, 26.0, 5.5, with_a(hex(0xff6a18), 0.45 * glow));
+            }
+        }
+    }
+
+    /// Back layer of the 2.5D goals (far post + back net, drawn BEHIND players and ball)
+    /// with spring-damped multi-strip net bulge distortion on goals/net hits.
+    fn draw_goal_back(&self) {
+        let Some(tex) = self.assets.ui("goal_back") else { return };
+        const GX: f32 = -8.0;
+        const GY: f32 = 296.0;
+        const GW: f32 = 170.0;
+        const GH: f32 = 277.0;
+        let (tw, th) = (tex.width(), tex.height());
+        for gi in 0..2 {
+            let flip = gi == 1;
+            let gx = if flip { W - GW - GX } else { GX };
+            let bulge = self.net_bulge[gi];
+            if bulge.abs() < 0.004 {
+                tex_draw(tex, gx, GY, GW, GH, WHITE, flip, 0.0);
+                continue;
+            }
+            let strips = 12usize;
+            let hit_v = ((self.net_hit_y[gi] - GY) / GH).clamp(0.15, 0.85);
+            for s_i in 0..strips {
+                let v0 = s_i as f32 / strips as f32;
+                let v1 = (s_i + 1) as f32 / strips as f32;
+                let vm = (v0 + v1) * 0.5;
+                // Keep top crossbar (v=0) and ground base (v=1) pinned
+                let pin = (vm * std::f32::consts::PI).sin();
+                let focus = (-((vm - hit_v) / 0.34).powi(2)).exp();
+                let w = pin * (0.45 + 0.55 * focus);
+                let ripple = (bulge * 2.4 + vm * 10.0).sin() * bulge.abs() * 4.5 * w;
+                let disp = (bulge * w * 18.0 + ripple).clamp(-10.0, 28.0);
+                let sy = v0 * th;
+                let sh = (v1 - v0) * th;
+                let dy = GY + v0 * GH;
+                let dh = (v1 - v0) * GH + 0.5;
+                let (dx, dw) = if !flip { (gx - disp, GW + disp) } else { (gx, GW + disp) };
+                tex_sub(tex, 0.0, sy, tw, sh, dx, dy, dw, dh, WHITE, flip, 0.0);
+            }
+        }
+    }
+
+    /// Front layer of the 2.5D goals (front post + crossbar + front rim, drawn IN FRONT of
+    /// players and ball). Falls back cleanly to `goal_left` when `goal_front` is absent.
+    fn draw_goal_front(&self) {
+        let tex = self.assets.ui("goal_front").unwrap_or(&self.assets.goal_left);
+        const GX: f32 = -8.0;
+        const GY: f32 = 296.0;
+        const GW: f32 = 170.0;
+        const GH: f32 = 277.0;
+        let t = self.now as f32;
+        for gi in 0..2 {
+            let flip = gi == 1;
+            let gx = if flip { W - GW - GX } else { GX };
+            let r = self.post_rattle[gi];
+            let rx = if r > 0.0 { (t * 95.0).sin() * 2.2 * (r / 0.24) } else { 0.0 };
+            let ry = if r > 0.0 { (t * 118.0).cos() * 1.4 * (r / 0.24) } else { 0.0 };
+            tex_draw(tex, gx + rx, GY + ry, GW, GH, WHITE, flip, 0.0);
+        }
+    }
+
+    /// Frost/snow crystal decal on the grass beneath any frozen player.
+    fn draw_ground_frost(&self) {
+        for i in 0..2 {
+            let p = self.sim.p[i];
+            if p.frozen <= 0.0 {
+                continue;
+            }
+            let lift = (GROUND - (p.y + FEET)).max(0.0);
+            let k = (1.0 - lift / 280.0).clamp(0.28, 1.0);
+            if let Some(tex) = self.assets.ui("ice_frost") {
+                tex_center(tex, p.x, GROUND - 2.0, 214.0 * k, 80.0 * k, with_a(WHITE, 0.92 * k), false, 0.0);
+            } else {
+                // Crisp crystalline frost patch fallback
+                ellipse(p.x, GROUND + 1.0, 96.0 * k, 24.0 * k, with_a(hex(0x6ad8ff), 0.36 * k));
+                ellipse(p.x, GROUND + 1.0, 74.0 * k, 16.0 * k, with_a(hex(0xcaf6ff), 0.55 * k));
+                for sp in 0..6 {
+                    let a = sp as f32 * std::f32::consts::TAU / 6.0;
+                    let tx = p.x + a.cos() * 102.0 * k;
+                    let ty = GROUND + 1.0 + a.sin() * 24.0 * k;
+                    let b1 = a + 0.22;
+                    let b2 = a - 0.22;
+                    tri(
+                        (tx, ty),
+                        (p.x + b1.cos() * 58.0 * k, GROUND + 1.0 + b1.sin() * 14.0 * k),
+                        (p.x + b2.cos() * 58.0 * k, GROUND + 1.0 + b2.sin() * 14.0 * k),
+                        with_a(hex(0xdcf9ff), 0.62 * k),
+                    );
+                }
+            }
+        }
+    }
+
+    fn draw_ice_cracks_fallback(&self, ix: f32, iy: f32, iw: f32, ih: f32, stage2: bool) {
+        let c1 = with_a(WHITE, 0.90);
+        let c2 = with_a(hex(0xa8ecff), 0.72);
+        // Stage 1 sharp diagonal fracture lines
+        linev(ix + iw * 0.22, iy + ih * 0.18, ix + iw * 0.52, iy + ih * 0.44, 3.0, c1);
+        linev(ix + iw * 0.52, iy + ih * 0.44, ix + iw * 0.36, iy + ih * 0.68, 2.5, c2);
+        linev(ix + iw * 0.78, iy + ih * 0.28, ix + iw * 0.56, iy + ih * 0.50, 2.6, c1);
+        linev(ix + iw * 0.56, iy + ih * 0.50, ix + iw * 0.74, iy + ih * 0.76, 2.2, c2);
+        if stage2 {
+            // Stage 2 dense spiderweb cracks across the block
+            linev(ix + iw * 0.52, iy + ih * 0.44, ix + iw * 0.16, iy + ih * 0.54, 2.5, c1);
+            linev(ix + iw * 0.52, iy + ih * 0.44, ix + iw * 0.84, iy + ih * 0.62, 2.5, c1);
+            linev(ix + iw * 0.36, iy + ih * 0.68, ix + iw * 0.62, iy + ih * 0.86, 2.4, c1);
+            linev(ix + iw * 0.44, iy + ih * 0.12, ix + iw * 0.52, iy + ih * 0.44, 2.2, c2);
+            linev(ix + iw * 0.24, iy + ih * 0.82, ix + iw * 0.48, iy + ih * 0.60, 2.4, c1);
+        }
     }
 
     fn draw_player(&self, i: usize) {
@@ -1682,72 +2519,163 @@ impl App {
         let cid = self.sim.p[i].look as usize % 6;
         let head_tex = &self.assets.heads[cid];
         let boot_tex = &self.assets.boots[cid];
-        let x = p.x;
-        let y = p.y;
-        // ground shadow
-        let lift = (GROUND - (y + FEET)).max(0.0);
-        let k = (1.0 - lift / 300.0).max(0.3);
-        ellipse(x, GROUND + 4.0, 44.0 * k, 10.0 * k, with_a(BLACK, 0.34 * k));
-        // power aura
+        let frozen = p.frozen > 0.0;
+        let frac = if frozen { (p.frozen / FREEZE_TIME).clamp(0.0, 1.0) } else { 1.0 };
+        // Progressive shiver shake when frozen (plus sharp mash jolt on EV_ICE_CRACK)
+        let (sh_x, sh_y) = if frozen {
+            let stage_amp = if frac < 0.33 {
+                3.4
+            } else if frac < 0.66 {
+                1.4
+            } else {
+                0.0
+            };
+            let mash_amp = (self.ice_shiver[i] / 0.16).clamp(0.0, 1.0) * 6.5;
+            let t = self.now as f32;
+            ((t * 64.0 + i as f32 * 2.1).sin() * (stage_amp + mash_amp), (t * 48.0).cos() * (mash_amp * 0.35))
+        } else {
+            (0.0, 0.0)
+        };
+        let x = p.x + sh_x;
+        let y = p.y + sh_y;
+        // Dynamic ground shadow shrinking & softening smoothly with altitude
+        let lift = (GROUND - (p.y + FEET)).max(0.0);
+        let k = (1.0 - lift / 360.0).clamp(0.22, 1.0);
+        ellipse(p.x, GROUND + 2.0, 56.0 * k, 13.0 * k, with_a(BLACK, 0.20 * k * k));
+        ellipse(p.x, GROUND + 2.0, 42.0 * k, 9.0 * k, with_a(BLACK, 0.28 * k * k));
+        // Power-ready aura
         if p.power_ready > 0.0 {
             let pulse = (self.now as f32 * 12.0).sin() * 5.0;
-            circ(x, y + 8.0, HEAD_R + 28.0 + pulse, with_a(hex(0xff8a1a), 0.28));
-            circ(x, y + 8.0, HEAD_R + 16.0 + pulse, with_a(hex(0xffe14a), 0.32));
+            circ(x, y + 6.0, HEAD_R + 30.0 + pulse, with_a(hex(0xff8a1a), 0.24));
+            circ(x, y + 6.0, HEAD_R + 17.0 + pulse, with_a(hex(0xffe14a), 0.30));
         }
-        // back boot (subtle walk step)
-        let walk = p.walk.sin() * 7.0;
-        let back_x = x - s * 10.0 - walk * s;
-        let back_y = y + FEET - 16.0;
-        let back_rot = if p.on_ground { -walk * 0.025 * s } else { 0.15 * s };
-        tex_center(boot_tex, back_x, back_y, 56.0, 38.0, Color::new(0.72, 0.72, 0.78, 1.0), flip, back_rot);
-        // kicking front boot
-        let (fx, fy) = p.foot();
-        let kick_rot = if p.kick_t >= 0.0 {
-            let kk = (p.kick_t / KICK_TIME).clamp(0.0, 1.0);
-            let swing = (kk * std::f32::consts::PI).sin();
-            if p.kick_kind == 2 {
-                -s * 0.72 * swing
-            } else {
-                -s * 0.38 * swing
-            }
-        } else if p.on_ground {
-            walk * 0.025 * s
-        } else {
-            -0.12 * s
-        };
-        tex_center(boot_tex, fx + s * 2.0, fy + 2.0, 66.0, 44.0, WHITE, flip, kick_rot);
-        // big caricature head
-        let bob = if p.on_ground && p.vx.abs() > 10.0 {
-            -(p.walk * 2.0).sin().abs() * 3.5
-        } else {
-            0.0
-        };
-        let head_rot = if p.stun > 0.0 {
-            (self.now as f32 * 18.0).sin() * 0.24
-        } else {
-            (p.vx / MOVE_SPEED) * 0.08
-        };
-        let head_tint = if p.stun > 0.0 {
+        let body_tint = if frozen {
+            Color::new(0.64, 0.88, 1.0, 1.0)
+        } else if p.stun > 0.0 {
             Color::new(1.0, 0.82, 0.82, 1.0)
         } else if p.power_ready > 0.0 {
             Color::new(1.0, 0.96, 0.84, 1.0)
         } else {
             WHITE
         };
-        let frozen = p.frozen > 0.0;
-        let head_rot = if frozen { 0.0 } else { head_rot };
-        let head_tint = if frozen { Color::new(0.62, 0.86, 1.0, 1.0) } else { head_tint };
-        tex_center(head_tex, x, y - 2.0 + bob, 112.0, 112.0, head_tint, flip, head_rot);
-        if frozen {
-            tex_center(&self.assets.ice_block, x, y + 6.0, 136.0, 170.0, WHITE, false, 0.0);
-        }
-        // orbiting dizzy stars when stunned
-        if p.stun > 0.0 && !frozen {
-            let t = self.now as f32 * 6.5;
-            for j in 0..3 {
-                let a = t + j as f32 * 2.09;
-                star(x + a.cos() * 38.0, y - HEAD_R - 14.0 + a.sin() * 9.0, 8.0, hex(0xffe14a));
+        let bob = if !frozen && p.on_ground && p.vx.abs() > 10.0 {
+            -(p.walk * 2.0).sin().abs() * 4.0
+        } else {
+            0.0
+        };
+        // Back boot (72x48, sole aligned flush with GROUND = 560.0)
+        let walk = if frozen { 0.0 } else { p.walk.sin() * 9.0 };
+        let back_x = x - s * 16.0 - walk * s;
+        let back_y = y + FEET - 21.6;
+        let back_rot = if frozen {
+            0.0
+        } else if p.on_ground {
+            -walk * 0.025 * s
+        } else {
+            0.16 * s
+        };
+        let back_tint = tint_col(Color::new(0.75, 0.75, 0.82, 1.0), body_tint);
+        tex_center(boot_tex, back_x, back_y, 72.0, 48.0, back_tint, flip, back_rot);
+        // Stylized team-colored mini-jersey & shorts connecting head to boots
+        let lean = if frozen { 0.0 } else { (p.vx / MOVE_SPEED) * 4.0 };
+        draw_char_jersey(cid, x, y + 30.0 + bob * 0.5, 1.0, flip, lean, body_tint);
+        // Front kicking boot (84x56, sole aligned flush on GROUND = 560.0 when standing)
+        let (fx, fy) = p.foot();
+        let kick_rot = if frozen {
+            0.0
+        } else if p.kick_t >= 0.0 {
+            let kk = (p.kick_t / KICK_TIME).clamp(0.0, 1.0);
+            let swing = (kk * std::f32::consts::PI).sin();
+            if p.kick_kind == 2 {
+                -s * 0.74 * swing
+            } else {
+                -s * 0.40 * swing
             }
+        } else if p.on_ground {
+            walk * 0.024 * s
+        } else {
+            -0.12 * s
+        };
+        tex_center(boot_tex, fx + sh_x - s * 4.0, fy + sh_y - 4.4, 84.0, 56.0, body_tint, flip, kick_rot);
+        // Big caricature head (~132x132 centered cleanly above jersey collar)
+        let head_rot = if frozen {
+            0.0
+        } else if p.stun > 0.0 {
+            (self.now as f32 * 18.0).sin() * 0.24
+        } else {
+            (p.vx / MOVE_SPEED) * 0.08
+        };
+        tex_center(head_tex, x, y - 6.0 + bob, 132.0, 132.0, body_tint, flip, head_rot);
+        // Faceted ice block + 3-stage cracks when frozen
+        if frozen {
+            let pop = self.ice_pop[i].clamp(0.0, 1.0);
+            let pop_s = 0.85 + 0.15 * (1.0 - (1.0 - pop).powi(3));
+            let iw = 176.0 * pop_s;
+            let ih = 208.0 * pop_s;
+            // Flat base of ice_block.png sits at v = 0.962 -> rests flush on GROUND when grounded,
+            // or wraps squarely around feet when frozen mid-air!
+            let feet_y = if p.y + FEET >= GROUND - 6.0 { GROUND } else { p.y + FEET };
+            let ix = x - iw * 0.5;
+            let iy = feet_y + sh_y - ih * 0.962;
+            tex_draw(&self.assets.ice_block, ix, iy, iw, ih, WHITE, false, 0.0);
+            if frac < 0.66 {
+                if let Some(c1) = self.assets.ui("ice_crack1") {
+                    tex_draw(c1, ix, iy, iw, ih, WHITE, false, 0.0);
+                } else {
+                    self.draw_ice_cracks_fallback(ix, iy, iw, ih, frac < 0.33);
+                }
+            }
+            if frac < 0.33 {
+                if let Some(c2) = self.assets.ui("ice_crack2") {
+                    tex_draw(c2, ix, iy, iw, ih, WHITE, false, 0.0);
+                } else if self.assets.ui("ice_crack1").is_some() {
+                    self.draw_ice_cracks_fallback(ix, iy, iw, ih, true);
+                }
+            }
+        }
+        // Crisp 3D-orbiting dizzy stars when stunned (separate from freeze)
+        if p.stun > 0.0 && !frozen {
+            let t = self.now as f32 * 6.8;
+            let cy = y - HEAD_R - 14.0;
+            draw_ellipse_lines(px(x), py(cy), sc(48.0), sc(12.0), 0.0, sc(2.0), with_a(hex(0xffe14a), 0.32));
+            let mut stars = [0usize, 1, 2];
+            stars.sort_by(|&a, &b| {
+                let sa = (t + a as f32 * 2.094).sin();
+                let sb = (t + b as f32 * 2.094).sin();
+                sa.total_cmp(&sb)
+            });
+            for j in stars {
+                let a = t + j as f32 * 2.094;
+                let depth = (a.sin() + 1.0) * 0.5; // 0 = back, 1 = front
+                let sx = x + a.cos() * 48.0;
+                let sy = cy + a.sin() * 12.0;
+                let sr = 7.5 + 4.0 * depth;
+                let alpha = 0.72 + 0.28 * depth;
+                star_outlined(sx, sy, sr, with_a(hex(0xffe14a), alpha));
+            }
+        }
+    }
+
+    /// Visual ball radius with Giant Ball spring inflation/deflation curve and final-1.2s warning pulse.
+    fn ball_visual_r(&self) -> f32 {
+        let b = self.sim.ball;
+        if b.big > 0.0 {
+            let k = (self.big_anim / 0.30).clamp(0.0, 1.0);
+            // Overshoots to ~2.00 then settles cleanly to BIG_SCALE (1.85)
+            let osc = (-3.0 * k).exp() * (k * std::f32::consts::TAU * 1.15).cos() * (1.0 - k);
+            let mut scale = 1.0 + (BIG_SCALE - 1.0) * (1.0 - osc);
+            if b.big < 1.2 {
+                let warn = ((1.2 - b.big) / 1.2).clamp(0.0, 1.0);
+                scale *= 1.0 + (0.045 + 0.04 * warn) * ((1.2 - b.big) * 18.0).sin();
+            }
+            BALL_R * scale
+        } else if self.big_shrink > 0.0 {
+            let k = (1.0 - self.big_shrink / 0.24).clamp(0.0, 1.0);
+            let osc = (-4.5 * k).exp() * (k * std::f32::consts::TAU * 0.9).cos() * (1.0 - k);
+            let scale = 1.0 + (BIG_SCALE - 1.0) * osc;
+            BALL_R * scale.max(0.88)
+        } else {
+            BALL_R
         }
     }
 
@@ -1767,69 +2695,285 @@ impl App {
         } else {
             // a faint shimmer now and then
             let t = self.now as f32;
-            if (t * 1.5).fract() < 0.08 { 0.15 } else { 0.0 }
+            if (t * 1.5).fract() < 0.08 { 0.16 } else { 0.0 }
         };
         base.max(back)
     }
 
+    fn is_invis_owner_view(&self) -> bool {
+        let b = self.sim.ball;
+        if b.invis <= 0.0 {
+            return false;
+        }
+        let owner = b.invis_owner as usize;
+        let mine = self.local_players();
+        let seen_by_owner_only = !(self.mode == Mode::Local2 || (self.mode == Mode::Cpu && self.ai_both));
+        seen_by_owner_only && mine.contains(&owner)
+    }
+
+    fn draw_ball_shadow(&self, bx: f32, by: f32, r: f32, alpha: f32) {
+        if alpha <= 0.01 {
+            return;
+        }
+        let lift = (GROUND - (by + r)).max(0.0);
+        let k = (1.0 - lift / 440.0).clamp(0.20, 1.0);
+        let rx = r * 1.05 * k;
+        let ry = r * 0.27 * k;
+        ellipse(bx, GROUND + 2.0, rx * 1.22, ry * 1.22, with_a(BLACK, 0.16 * k * k * alpha));
+        ellipse(bx, GROUND + 2.0, rx, ry, with_a(BLACK, 0.30 * k * k * alpha));
+    }
+
     fn draw_ball(&self) {
         let b = self.sim.ball;
-        let r = b.r();
+        let r = self.ball_visual_r();
         let alpha = self.ball_alpha();
-        let lift = (GROUND - (b.y + r)).max(0.0);
-        let k = (1.0 - lift / 400.0).max(0.25);
-        ellipse(b.x, GROUND + 4.0, 24.0 * k * r / BALL_R, 6.0 * k, with_a(BLACK, 0.34 * k * alpha));
-        let tint = if b.ice > 0.0 {
-            Color::new(0.65, 0.9, 1.0, alpha)
-        } else if b.bomb > 0.0 {
-            let blink = if (b.bomb * if b.bomb < 0.8 { 12.0 } else { 5.0 }).fract() < 0.5 { 1.0 } else { 0.0 };
-            Color::new(0.35 + 0.65 * blink, 0.3, 0.3, alpha)
+        let t = self.now as f32;
+        // Squash & stretch on bounces/kicks (~1.15 x 0.87 for 75 ms)
+        let sq = (self.ball_squash / 0.075).clamp(0.0, 1.0);
+        let (sq_x, sq_y) = if self.ball_squash_vert {
+            (1.0 - 0.13 * sq, 1.0 + 0.15 * sq)
         } else {
-            Color::new(1.0, 1.0, 1.0, alpha)
+            (1.0 + 0.15 * sq, 1.0 - 0.13 * sq)
         };
-        // fake balls from the clone power look exactly like the real one
+        // Real ball shadow
+        self.draw_ball_shadow(b.x, b.y, r, alpha);
+        // Fake clone balls: draw MATCHING ground shadows and respect `big` scale & `alpha` so there is zero tell!
         if b.clone_t > 0.0 {
+            let cd = r * 2.15;
             for c in b.clones {
-                tex_center(&self.assets.ball, c[0], c[1], BALL_R * 2.15, BALL_R * 2.15, WHITE, false, b.angle);
+                self.draw_ball_shadow(c[0], c[1], r, alpha);
+                tex_center(&self.assets.ball, c[0], c[1], cd, cd, Color::new(1.0, 1.0, 1.0, alpha), false, b.angle);
             }
         }
+        // Giant Ball golden rim glow (pulses faster in final 1.2 s)
+        if b.big > 0.0 && alpha > 0.05 {
+            let pulse = if b.big < 1.2 {
+                0.28 + 0.22 * ((1.2 - b.big) * 18.0).sin().abs()
+            } else {
+                0.18 + 0.06 * (t * 6.0).sin()
+            };
+            circ(b.x, b.y, r + 9.0, with_a(hex(0xffd34d), pulse * alpha));
+            circ_line(b.x, b.y, r + 4.0, 3.0, with_a(hex(0xfff0a0), (pulse + 0.18) * alpha));
+        }
         if b.fire > 0.0 {
-            circ(b.x, b.y, r + 12.0, with_a(hex(0xff6a00), 0.40 * alpha));
+            // Directional tapered flame comet behind velocity vector
+            let sp = (b.vx * b.vx + b.vy * b.vy).sqrt();
+            if sp > 120.0 {
+                let (dx, dy) = (-b.vx / sp, -b.vy / sp);
+                let (px_n, py_n) = (-dy, dx);
+                let flick = 1.0 + 0.14 * (t * 36.0).sin();
+                let len = (r * 3.4 * flick).min(135.0);
+                // Outer red-orange flame cone
+                tri(
+                    (b.x + dx * len, b.y + dy * len),
+                    (b.x + px_n * r * 1.15, b.y + py_n * r * 1.15),
+                    (b.x - px_n * r * 1.15, b.y - py_n * r * 1.15),
+                    with_a(hex(0xff3d00), 0.48 * alpha),
+                );
+                // Mid orange tongue
+                tri(
+                    (b.x + dx * len * 0.72, b.y + dy * len * 0.72),
+                    (b.x + px_n * r * 0.82, b.y + py_n * r * 0.82),
+                    (b.x - px_n * r * 0.82, b.y - py_n * r * 0.82),
+                    with_a(hex(0xff9414), 0.68 * alpha),
+                );
+                // Hot yellow-white core
+                tri(
+                    (b.x + dx * len * 0.42, b.y + dy * len * 0.42),
+                    (b.x + px_n * r * 0.48, b.y + py_n * r * 0.48),
+                    (b.x - px_n * r * 0.48, b.y - py_n * r * 0.48),
+                    with_a(hex(0xfff4a8), 0.78 * alpha),
+                );
+            }
+            // Layered roaring flame aura + fire ball sprite
+            circ(b.x, b.y, r + 15.0 + (t * 28.0).sin() * 3.0, with_a(hex(0xff5200), 0.34 * alpha));
+            circ(b.x, b.y, r + 8.0, with_a(hex(0xffb420), 0.42 * alpha));
             let d = r * 3.15;
-            tex_center(&self.assets.ball_fire, b.x, b.y, d, d, Color::new(1.0, 1.0, 1.0, alpha), false, b.angle * 0.45);
+            tex_center(&self.assets.ball_fire, b.x, b.y, d * sq_x, d * sq_y, Color::new(1.0, 1.0, 1.0, alpha), false, b.angle * 0.45);
         } else if b.ice > 0.0 {
-            circ(b.x, b.y, r + 9.0, with_a(hex(0x9fe6ff), 0.45 * alpha));
+            circ(b.x, b.y, r + 10.0, with_a(hex(0x9fe6ff), 0.45 * alpha));
             let d = r * 2.45;
-            tex_center(&self.assets.ball_ice, b.x, b.y, d, d, Color::new(1.0, 1.0, 1.0, alpha), false, b.angle);
+            tex_center(&self.assets.ball_ice, b.x, b.y, d * sq_x, d * sq_y, Color::new(1.0, 1.0, 1.0, alpha), false, b.angle);
         } else if b.bomb > 0.0 {
-            let d = r * 2.55;
-            let blink = if (b.bomb * if b.bomb < 0.8 { 12.0 } else { 5.0 }).fract() < 0.5 { 1.0 } else { 0.72 };
-            tex_center(&self.assets.ball_bomb, b.x, b.y - 3.0, d, d, Color::new(1.0, blink, blink, alpha), false, b.angle * 0.25);
+            let urgent = b.bomb < 0.9;
+            let rate = if urgent { 14.0 } else { 5.0 };
+            let flash = if (b.bomb * rate).fract() < 0.5 { 1.0 } else { 0.0 };
+            // Subtle pulsing danger radius ring under 0.9 s
+            if urgent {
+                let p_ring = 0.20 + 0.22 * (t * 18.0).sin().abs();
+                circ(b.x, b.y, BOMB_RADIUS, with_a(hex(0xff3818), 0.05 * p_ring * alpha));
+                circ_line(b.x, b.y, BOMB_RADIUS, 3.0, with_a(hex(0xff5a2a), p_ring * alpha));
+                circ_line(b.x, b.y, BOMB_RADIUS * 0.85, 1.5, with_a(hex(0xffc040), p_ring * 0.55 * alpha));
+            }
+            let throb = 1.0 + if urgent { 0.12 * (t * 22.0).sin().abs() } else { 0.04 * (t * 10.0).sin().abs() };
+            let d = r * 2.55 * throb;
+            let tint = if flash > 0.5 {
+                Color::new(1.0, if urgent { 0.92 } else { 1.0 }, if urgent { 0.82 } else { 1.0 }, alpha)
+            } else {
+                Color::new(1.0, 0.42, 0.36, alpha)
+            };
+            if urgent && flash > 0.5 {
+                circ(b.x, b.y, r * 1.25, with_a(hex(0xff4220), 0.36 * alpha));
+            }
+            tex_center(&self.assets.ball_bomb, b.x, b.y - 3.0, d * sq_x, d * sq_y, tint, false, b.angle * 0.25);
         } else {
             let d = r * 2.15;
-            tex_center(&self.assets.ball, b.x, b.y, d, d, tint, false, b.angle);
+            tex_center(&self.assets.ball, b.x, b.y, d * sq_x, d * sq_y, Color::new(1.0, 1.0, 1.0, alpha), false, b.angle);
+        }
+        // Invisible ball ethereal ghost ring/shimmer for owner, subtle glint for opponent
+        if b.invis > 0.0 {
+            if self.is_invis_owner_view() {
+                let glow = 0.45 + 0.25 * (t * 8.0).sin();
+                circ_line(b.x, b.y, r + 4.0, 3.0, with_a(hex(0x88f0ff), glow));
+                for j in 0..3 {
+                    let a = t * 4.5 + j as f32 * 2.094;
+                    let sx = b.x + a.cos() * (r + 7.0);
+                    let sy = b.y + a.sin() * (r + 7.0);
+                    circ(sx, sy, 3.2, with_a(WHITE, 0.85));
+                }
+            } else if alpha > 0.05 && alpha < 0.35 {
+                // Brief subtle glint cross for opponent
+                linev(b.x - 14.0, b.y, b.x + 14.0, b.y, 2.2, with_a(hex(0xc8f6ff), alpha * 2.5));
+                linev(b.x, b.y - 14.0, b.x, b.y + 14.0, 2.2, with_a(hex(0xc8f6ff), alpha * 2.5));
+            }
         }
     }
 
-    /// The field, players, ball, goals and effects, through the match camera.
+    fn draw_ice_beams(&self) {
+        for ib in &self.ice_beams {
+            let k = (ib.life / ib.max).clamp(0.0, 1.0);
+            let a = (1.0 - k).powf(0.8);
+            let dx = ib.to_x - ib.from_x;
+            let dy = ib.to_y - ib.from_y;
+            let len = (dx * dx + dy * dy).sqrt().max(1.0);
+            let (nx, ny) = (-dy / len, dx / len);
+            let segs = 7usize;
+            let mut prev = (ib.from_x, ib.from_y);
+            for s in 1..=segs {
+                let u = s as f32 / segs as f32;
+                let jitter = if s == segs {
+                    0.0
+                } else {
+                    ((s as f32 * 3.7 + ib.life * 28.0).sin()) * 16.0 * (1.0 - k * 0.5)
+                };
+                let cur = (ib.from_x + dx * u + nx * jitter, ib.from_y + dy * u + ny * jitter);
+                linev(prev.0, prev.1, cur.0, cur.1, 18.0 * a, with_a(hex(0x45d8ff), 0.32 * a));
+                linev(prev.0, prev.1, cur.0, cur.1, 8.5 * a, with_a(hex(0xa8f2ff), 0.72 * a));
+                linev(prev.0, prev.1, cur.0, cur.1, 3.5 * a, with_a(WHITE, 0.95 * a));
+                prev = cur;
+            }
+            circ(ib.to_x, ib.to_y, 34.0 * (0.6 + 0.5 * k), with_a(hex(0x88eeff), 0.45 * a));
+        }
+    }
+
+    fn draw_rings(&self) {
+        for r in &self.rings {
+            let k = (r.life / r.max).clamp(0.0, 1.0);
+            let ease = 1.0 - (1.0 - k).powi(2);
+            let rad = r.r0 + (r.r1 - r.r0) * ease;
+            let a = (1.0 - k).powf(0.9);
+            circ_line(r.x, r.y, rad, (r.thick * (1.0 - k * 0.6)).max(1.5), with_a(r.col, 0.85 * a));
+        }
+    }
+
+    fn draw_ice_shards(&self) {
+        for sh in &self.shards {
+            let a = (1.0 - sh.life / sh.max).clamp(0.0, 1.0);
+            let (cs, sn) = (sh.rot.cos(), sh.rot.sin());
+            let pt = |lx: f32, ly: f32| (sh.x + lx * cs - ly * sn, sh.y + lx * sn + ly * cs);
+            let v0 = pt(0.0, -sh.size);
+            let v1 = pt(sh.size * 0.55, -sh.size * 0.12);
+            let v2 = pt(0.0, sh.size * 0.88);
+            let v3 = pt(-sh.size * 0.52, sh.size * 0.14);
+            let body = with_a(sh.col, 0.84 * a);
+            tri(v0, v1, v2, body);
+            tri(v0, v2, v3, with_a(mix(sh.col, hex(0x28b8f0), 0.35), 0.80 * a));
+            tri(v0, v1, (sh.x, sh.y), with_a(WHITE, 0.85 * a));
+        }
+    }
+
+    fn draw_confetti(&self) {
+        for cf in &self.confetti {
+            let a = (1.0 - (cf.life / cf.max).powi(3)).clamp(0.0, 1.0);
+            let piece = (cf.piece % 4) as f32;
+            tex_sub(
+                &self.assets.confetti,
+                piece * 32.0,
+                0.0,
+                32.0,
+                32.0,
+                cf.x - cf.size * 0.5,
+                cf.y - cf.size * 0.5,
+                cf.size,
+                cf.size,
+                Color::new(1.0, 1.0, 1.0, a),
+                false,
+                cf.rot,
+            );
+        }
+    }
+
+    /// The field, players, ball, 2-layer goals and effects, through the match camera
+    /// (with vertical-only shake and edge-clamped goal-celebration zoom so no gap ever opens).
     pub(crate) fn draw_world(&self, live: bool) {
-        // the screen shakes up and down only, so the sides never show a gap
-        let shake = if live && self.shake > 0.0 { (self.now as f32 * 90.0).sin() * 5.0 * self.shake / 0.25 } else { 0.0 };
-        let (s, ox, oy) = match_view();
-        with_view((s, ox, oy + shake * s), || {
+        let (sw, sh) = (screen_width(), screen_height());
+        let (s0, ox0, oy0) = match_view();
+        let screen_band_top = (WORLD_BOTTOM * s0 + oy0).min(sh * (1.0 - BAND));
+        // Subtle 1.0 -> 1.07x camera zoom toward scoring goal during goal celebration
+        let (s, ox_base, oy_base) = if live && self.sim.phase == Phase::Goal {
+            let zin = (self.goal_anim / 0.25).clamp(0.0, 1.0);
+            let zin = 1.0 - (1.0 - zin).powi(3);
+            let zout = ((GOAL_PAUSE - self.goal_anim) / 0.45).clamp(0.0, 1.0);
+            let zoom = 1.0 + 0.07 * zin * zout;
+            let fx = if self.sim.last_scorer == 0 { W * 0.78 } else { W * 0.22 };
+            let fy = 430.0;
+            let s = s0 * zoom;
+            let ox = ox0 + fx * s0 * (1.0 - zoom);
+            let oy = oy0 + fy * s0 * (1.0 - zoom);
+            (s, ox, oy)
+        } else {
+            (s0, ox0, oy0)
+        };
+        // Vertical-only damped camera shake (never moves horizontally so sides never show a gap)
+        let sy_off = if live && self.shake > 0.0 && self.shake_dur > 0.0 {
+            let env = (self.shake / self.shake_dur).clamp(0.0, 1.0);
+            let amp = self.shake_mag * env * env;
+            let t = self.now as f32;
+            if oy_base < -amp * s {
+                (t * 95.0).sin() * amp
+            } else {
+                // Flush at top edge (16:9 / 4:3): bounce upward into the pitch apron covered by the band
+                -(t * 52.0).sin().abs() * amp
+            }
+        } else {
+            0.0
+        };
+        // Clamp camera bounds strictly so `0..W` covers `0..sw` and `0..H` covers `0..screen_band_top`
+        let min_ox = (sw - W * s).min(0.0);
+        let min_oy = (screen_band_top - H * s).min(0.0);
+        let ox = ox_base.clamp(min_ox, 0.0);
+        let oy = (oy_base + sy_off * s).clamp(min_oy, 0.0);
+        with_view((s, ox, oy), || {
             self.draw_field(live);
+            self.draw_scorch_marks();
+            self.draw_goal_back();
+            self.draw_ground_frost();
             for p in &self.particles {
-                if p.c.r > 0.9 && p.c.g < 0.6 {
-                    circ(p.x, p.y, p.r * (1.0 - p.life / p.max), with_a(p.c, 0.7));
+                if p.behind {
+                    let a = (1.0 - p.life / p.max).clamp(0.0, 1.0);
+                    circ(p.x, p.y, p.r * a, with_a(p.c, p.c.a * a * 0.85));
                 }
             }
             self.draw_player(0);
             self.draw_player(1);
             self.draw_ball();
-            self.draw_goal_frames();
+            self.draw_goal_front();
+            self.draw_ice_beams();
+            self.draw_rings();
             for p in &self.particles {
-                if !(p.c.r > 0.9 && p.c.g < 0.6) {
-                    circ(p.x, p.y, p.r, with_a(p.c, 1.0 - p.life / p.max));
+                if !p.behind {
+                    let a = (1.0 - p.life / p.max).clamp(0.0, 1.0);
+                    circ(p.x, p.y, p.r, with_a(p.c, p.c.a * a));
                 }
             }
             for f in &self.fx {
@@ -1843,13 +2987,32 @@ impl App {
                         let frame = (k * 6.0) as usize;
                         tex_sub(&self.assets.fx_kick, frame as f32 * 128.0, 0.0, 128.0, 128.0, f.x - f.size * 0.5, f.y - f.size * 0.5, f.size, f.size, WHITE, f.flip_x, 0.0);
                     }
+                    FxKind::KickSwing => {
+                        let frame = (k * 6.0) as usize;
+                        let a = 0.36 * (1.0 - k);
+                        tex_sub(&self.assets.fx_kick, frame as f32 * 128.0, 0.0, 128.0, 128.0, f.x - f.size * 0.5, f.y - f.size * 0.5, f.size, f.size, Color::new(0.88, 0.95, 1.0, a), f.flip_x, 0.0);
+                    }
                     FxKind::Boom => {
                         let frame = (k * 8.0) as usize;
                         tex_center(&self.assets.boom[frame.min(7)], f.x, f.y, f.size, f.size, WHITE, false, 0.0);
                     }
                 }
             }
+            self.draw_ice_shards();
+            self.draw_confetti();
         });
+    }
+
+    /// Brief icy cyan screen glint overlay on `EV_ICE_CAST`.
+    fn draw_ice_flash(&self) {
+        if self.ice_flash <= 0.0 {
+            return;
+        }
+        let k = (self.ice_flash / 0.28).clamp(0.0, 1.0);
+        let (l, t, r, _) = screen_box();
+        let h = band_top() - t;
+        rectv(l, t, r - l, h, with_a(hex(0x64e6ff), 0.20 * k * k));
+        rect_line(l + 4.0, t + 4.0, (r - l) - 8.0, h - 8.0, 12.0, with_a(hex(0xb8f6ff), 0.55 * k));
     }
 
     /// The dark strip under the field where the buttons sit (`assets/ui/band.png` if it exists).
@@ -1863,19 +3026,20 @@ impl App {
             tex_draw(tex, l, top, r - l, b - top, WHITE, false, 0.0);
             return;
         }
+        // Sleek dark navy/charcoal arcade bottom deck fallback with beveled metallic top lip
         let h = b - top;
-        rectv(l, top, r - l, h, hex(0x2a1d15));
+        rectv(l, top, r - l, h, hex(0x12192b));
         for i in 0..6 {
-            // darker towards the bottom
-            let y = top + h * (0.4 + i as f32 * 0.1);
-            rectv(l, y, r - l, h * 0.1 + 1.0, with_a(hex(0x120c08), 0.08 + i as f32 * 0.05));
+            let y = top + h * (0.35 + i as f32 * 0.11);
+            rectv(l, y, r - l, h * 0.12 + 1.0, with_a(hex(0x070a14), 0.12 + i as f32 * 0.06));
         }
-        rectv(l, top, r - l, 9.0, hex(0x4b3525));
-        rectv(l, top + 9.0, r - l, 5.0, with_a(BLACK, 0.45));
+        rectv(l, top, r - l, 8.0, hex(0x2d436e));
+        rectv(l, top, r - l, 2.5, with_a(hex(0x88b8ff), 0.45));
+        rectv(l, top + 8.0, r - l, 6.0, with_a(BLACK, 0.50));
     }
 
-    /// When the ball flies above what the screen shows, a little ball and arrow at the
-    /// top mark where it is.
+    /// When the ball flies above the visible top edge of the screen, a little ball and arrow
+    /// mark its horizontal position (accounts for top crop on wide phones like 20:9).
     fn draw_ball_marker(&self) {
         let b = self.sim.ball;
         let (ms, mox, moy) = match_view();
@@ -1884,16 +3048,18 @@ impl App {
             return;
         }
         let (s, ox, _) = view();
-        let x = (b.x * ms + mox - ox) / s;
-        let (_, t, _, _) = screen_box();
-        let y = t + 146.0;
-        let a = 0.6 + 0.3 * (self.now as f32 * 8.0).sin().abs();
-        tri((x, y - 34.0), (x - 13.0, y - 20.0), (x + 13.0, y - 20.0), with_a(WHITE, a));
-        tex_center(&self.assets.ball, x, y, 30.0, 30.0, with_a(WHITE, a), false, b.angle);
+        let (sl, t, sr, _) = screen_box();
+        let x = ((b.x * ms + mox - ox) / s).clamp(sl + 24.0, sr - 24.0);
+        let y = t + 126.0;
+        let a = 0.65 + 0.30 * (self.now as f32 * 8.0).sin().abs();
+        tri((x, y - 32.0), (x - 15.0, y - 15.0), (x + 15.0, y - 15.0), with_a(hex(0x0b1022), a * 0.85));
+        tri((x, y - 30.0), (x - 12.0, y - 17.0), (x + 12.0, y - 17.0), with_a(WHITE, a));
+        tex_center(&self.assets.ball, x, y + 2.0, 30.0, 30.0, with_a(WHITE, a), false, b.angle);
     }
 
     fn draw_match(&mut self) {
         self.draw_world(true);
+        self.draw_ice_flash();
         self.draw_band();
         self.draw_ball_marker();
         self.draw_hud();
@@ -1902,61 +3068,118 @@ impl App {
 
     fn draw_hud(&mut self) {
         let sim = &self.sim;
-        // scoreboard
-        let sb_x = 450.0;
+        let t = self.now as f32;
+        // Compact glossy top-center scoreboard (Y = 2..90, X = 478..802)
+        let sb_w = 324.0;
+        let sb_h = 88.0;
+        let sb_x = 640.0 - sb_w * 0.5;
         let sb_y = 2.0;
-        let sb_w = 380.0;
-        let sb_h = 104.0;
         tex_draw(&self.assets.scoreboard, sb_x, sb_y, sb_w, sb_h, WHITE, false, 0.0);
-        text_o(&sim.score[0].to_string(), sb_x + sb_w * 0.194, 72.0, 48.0, hex(0x9be2ff));
-        text_o(&sim.score[1].to_string(), sb_x + sb_w * 0.806, 72.0, 48.0, hex(0xffa49b));
+        text_o(&sim.score[0].to_string(), sb_x + sb_w * 0.194, 61.0, 42.0, hex(0x9be2ff));
+        text_o(&sim.score[1].to_string(), sb_x + sb_w * 0.806, 61.0, 42.0, hex(0xffa49b));
         let tl = sim.time_left.max(0.0).ceil() as i32;
-        let tcol = if tl <= 10 && sim.phase == Phase::Play { hex(0xff6a5a) } else { hex(0xffe14a) };
         if sim.overtime {
-            let pulse = 0.5 + 0.5 * (self.now as f32 * 6.0).sin().abs();
-            text_o("OURO", 640.0, 68.0, 30.0, mix(WHITE, hex(0xffd34d), pulse));
+            let pulse = 0.5 + 0.5 * (t * 6.0).sin().abs();
+            text_o("OURO", 640.0, 58.0, 27.0, mix(WHITE, hex(0xffd34d), pulse));
         } else {
-            text_o(&format!("{}:{:02}", tl / 60, tl % 60), 640.0, 70.0, 36.0, tcol);
+            let urgent = tl <= 10 && sim.phase == Phase::Play;
+            let (tcol, tsz) = if urgent {
+                let p = (t * 9.0).sin().abs();
+                (mix(hex(0xff3e30), hex(0xffd2cc), p * 0.45), 32.0 * (1.0 + 0.11 * p))
+            } else {
+                (hex(0xffe14a), 32.0)
+            };
+            text_o(&format!("{}:{:02}", tl / 60, tl % 60), 640.0, 59.0, tsz, tcol);
         }
         self.hud.score = true;
         self.hud.timer = true;
-        // names and power bars
+
+        // Flanking HB2 player HUD cards (strictly inside X = 172..1108 -> >=18 px clear of top-right Power btn even at 150% scale!)
+        const PW_COLS: [u32; 6] = [0xff7a18, 0xffc830, 0x44d8ff, 0xa878ff, 0xff4632, 0x38d898];
         for i in 0..2 {
             let p = sim.p[i];
-            let (bx, name_x) = if i == 0 { (140.0, 140.0) } else { (W - 140.0 - 300.0, W - 140.0) };
+            let look = p.look as usize % 6;
+            let pkind = (p.pkind % POWER_KINDS) as usize;
+            let ready = p.power >= 1.0 || p.power_ready > 0.0;
+            // Bar & portrait coordinates (mirrored symmetrically around X = 640)
+            let bar_w = 222.0;
+            let bar_x = if i == 0 { 248.0 } else { 810.0 };
+            let bar_y = 44.0;
+            let bar_h = 22.0;
+            let port_x = if i == 0 { 206.0 } else { 1074.0 };
+            let port_y = 46.0;
+            let port_r = 34.0;
+            let badge_x = if i == 0 { 240.0 } else { 1040.0 };
+            let badge_y = 63.0;
+
+            // Player name above bar
             let name = self.player_name(i);
-            let nw = text_w(name, 28.0);
-            let nx = if i == 0 { name_x } else { name_x - nw };
-            text(name, nx + 2.0, 35.0, 28.0, with_a(BLACK, 0.75));
-            text(name, nx, 33.0, 28.0, WHITE);
-            rrect(bx, 44.0, 300.0, 26.0, 13.0, with_a(hex(0x0b1022), 0.85));
-            let fill = if p.power_ready > 0.0 { p.power_ready / game::POWER_READY_TIME } else { p.power };
-            let fw = (292.0 * fill).max(0.0);
-            let full = p.power >= 1.0 || p.power_ready > 0.0;
-            let pulse = if full { 0.25 + 0.25 * (self.now as f32 * 8.0).sin() } else { 0.0 };
-            let col = mix(hex(0xff8a1a), hex(0xffe14a), pulse + 0.2);
+            let nw = text_w(name, 23.0);
+            let nx = if i == 0 { bar_x + 6.0 } else { bar_x + bar_w - 6.0 - nw };
+            text(name, nx + 2.0, 36.0, 23.0, with_a(BLACK, 0.8));
+            text(name, nx, 34.0, 23.0, WHITE);
+
+            // Sleek power charge bar track & fill
+            rrect(bar_x, bar_y, bar_w, bar_h, 11.0, with_a(hex(0x0b1022), 0.88));
+            rrect(bar_x + 1.0, bar_y + 1.0, bar_w - 2.0, bar_h - 2.0, 10.0, with_a(hex(0x1b2646), 0.65));
+            let fill = if p.power_ready > 0.0 {
+                (p.power_ready / game::POWER_READY_TIME).clamp(0.0, 1.0)
+            } else {
+                p.power.clamp(0.0, 1.0)
+            };
+            let fw = ((bar_w - 6.0) * fill).max(0.0);
+            let pulse = if ready { 0.25 + 0.25 * (t * 8.0).sin() } else { 0.0 };
+            let base_col = mix(hex(0xff8a1a), hex(PW_COLS[pkind]), 0.45);
+            let col = mix(base_col, hex(0xfff0a0), pulse);
             if fw > 2.0 {
-                let fx = if i == 0 { bx + 4.0 } else { bx + 296.0 - fw };
-                rrect(fx, 48.0, fw, 18.0, 9.0, col);
+                let fx = if i == 0 { bar_x + 3.0 } else { bar_x + bar_w - 3.0 - fw };
+                rrect(fx, bar_y + 3.0, fw, bar_h - 6.0, 8.0, col);
+                rrect(fx + 2.0, bar_y + 4.0, (fw - 4.0).max(0.0), 5.0, 2.5, with_a(WHITE, 0.35));
             }
-            let pname = POWER_NAMES[(p.pkind % POWER_KINDS) as usize].to_uppercase();
+            let pname = POWER_NAMES[pkind].to_uppercase();
             let label = if p.power_ready > 0.0 {
-                format!("{}: CHUTE AGORA!", pname)
+                "CHUTE AGORA!".to_string()
             } else if p.power >= 1.0 {
                 format!("{} PRONTO!", pname)
             } else {
-                format!("PODER: {}", pname)
+                pname
             };
-            text_o(&label, bx + 150.0, 65.0, 19.0, WHITE);
+            let label_cx = if i == 0 { bar_x + bar_w * 0.53 } else { bar_x + bar_w * 0.47 };
+            let max_lw = bar_w - 22.0;
+            let lw0 = text_w(&label, 16.5);
+            let lsz = if lw0 > max_lw { (16.5 * max_lw / lw0).max(12.0) } else { 16.5 };
+            text_o(&label, label_cx, bar_y + 17.0, lsz, WHITE);
+
+            // Circular framed character mini-portrait
+            let team_bg = if i == 0 { hex(0x1a5cd4) } else { hex(0xcf2438) };
+            let ring_col = if ready { mix(hex(0xffd34d), WHITE, 0.3 + 0.3 * (t * 8.0).sin()) } else { hex(0xdce8ff) };
+            circ(port_x, port_y + 3.0, port_r + 2.0, with_a(BLACK, 0.45));
+            circ(port_x, port_y, port_r, team_bg);
+            circ(port_x, port_y - 6.0, port_r * 0.72, with_a(WHITE, 0.14));
+            tex_center(&self.assets.heads[look], port_x, port_y + 1.0, 54.0, 54.0, WHITE, i == 1, 0.0);
+            circ_line(port_x, port_y, port_r, 3.5, ring_col);
+            circ_line(port_x, port_y, port_r + 2.2, 1.8, with_a(hex(0x0b1022), 0.9));
+
+            // Mini power icon badge pulsing when ready
+            let b_pulse = if ready { 1.0 + 0.14 * (t * 9.0).sin().abs() } else { 1.0 };
+            if ready {
+                circ(badge_x, badge_y, 20.0 * b_pulse, with_a(hex(0xffe14a), 0.38));
+            }
+            circ(badge_x, badge_y, 16.5, hex(0x101830));
+            circ_line(badge_x, badge_y, 16.5, 2.2, if ready { hex(0xffd34d) } else { hex(0x5a709c) });
+            let icon_tint = if ready { WHITE } else { Color::new(0.70, 0.72, 0.80, 0.90) };
+            let icon_sz = 27.0 * b_pulse;
+            tex_center(&self.assets.btn_powers[pkind], badge_x, badge_y, icon_sz, icon_sz, icon_tint, false, 0.0);
         }
         self.hud.power = true;
-        if let Some(t) = self.tour {
-            let label = format!("Campeonato: {}", TOUR_ROUNDS[t.round.min(2)].0);
-            text(&label, 142.0, 100.0, 22.0, with_a(BLACK, 0.75));
-            text(&label, 140.0, 98.0, 22.0, hex(0xffe9a0));
+        if let Some(tour) = self.tour {
+            let label = format!("Campeonato: {}", TOUR_ROUNDS[tour.round.min(2)].0);
+            let lw = text_w(&label, 19.0) + 28.0;
+            rrect(640.0 - lw * 0.5, 92.0, lw, 26.0, 13.0, with_a(hex(0x0b1022), 0.75));
+            text_o(&label, 640.0, 111.0, 19.0, hex(0xffe9a0));
         }
 
-        // big centre messages (hidden while the pause or "connection lost" box is open)
+        // Big centre messages (hidden while the pause or "connection lost" box is open)
         if self.paused || self.lost {
             return;
         }
@@ -1964,43 +3187,70 @@ impl App {
             Phase::Countdown => {
                 // "versus" banner at the very start of the match
                 if sim.score == [0, 0] {
-                    rrect(250.0, 196.0, 780.0, 164.0, 24.0, with_a(BLACK, 0.5));
-                    let bob = (self.now as f32 * 4.0).sin() * 3.0;
-                    tex_center(&self.assets.heads[sim.p[0].look as usize % 6], 400.0, 266.0 + bob, 124.0, 124.0, WHITE, false, 0.0);
-                    tex_center(&self.assets.heads[sim.p[1].look as usize % 6], 880.0, 266.0 - bob, 124.0, 124.0, WHITE, true, 0.0);
-                    text_o("VS", 640.0, 288.0, 84.0, hex(0xffd34d));
-                    if let Some(t) = self.tour {
-                        text_o(TOUR_ROUNDS[t.round.min(2)].0, 640.0, 330.0, 24.0, WHITE);
+                    rrect(250.0, 172.0, 780.0, 164.0, 24.0, with_a(BLACK, 0.52));
+                    let bob = (t * 4.0).sin() * 3.0;
+                    tex_center(&self.assets.heads[sim.p[0].look as usize % 6], 400.0, 242.0 + bob, 124.0, 124.0, WHITE, false, 0.0);
+                    tex_center(&self.assets.heads[sim.p[1].look as usize % 6], 880.0, 242.0 - bob, 124.0, 124.0, WHITE, true, 0.0);
+                    text_o("VS", 640.0, 264.0, 84.0, hex(0xffd34d));
+                    if let Some(tour) = self.tour {
+                        text_o(TOUR_ROUNDS[tour.round.min(2)].0, 640.0, 306.0, 24.0, WHITE);
                     }
-                    text_o(self.player_name(0), 400.0, 348.0, 26.0, hex(0x9be2ff));
-                    text_o(self.player_name(1), 880.0, 348.0, 26.0, hex(0xffa49b));
+                    text_o(self.player_name(0), 400.0, 324.0, 26.0, hex(0x9be2ff));
+                    text_o(self.player_name(1), 880.0, 324.0, 26.0, hex(0xffa49b));
                 }
                 let n = sim.phase_t.ceil() as i32;
                 let k = 1.0 + (sim.phase_t.fract()) * 0.4;
-                text_o(&n.max(1).to_string(), 640.0, 470.0, 120.0 * k, hex(0xffd34d));
+                text_o(&n.max(1).to_string(), 640.0, 448.0, 120.0 * k, hex(0xffd34d));
             }
             Phase::Ready => {
                 if sim.overtime {
-                    text_o("GOL DE OURO!", 640.0, 300.0, 72.0, hex(0xffd34d));
-                    text_o("quem marcar primeiro vence", 640.0, 346.0, 28.0, WHITE);
+                    text_o("GOL DE OURO!", 640.0, 286.0, 72.0, hex(0xffd34d));
+                    text_o("quem marcar primeiro vence", 640.0, 332.0, 28.0, WHITE);
                 } else {
-                    text_o("PREPARAR...", 640.0, 300.0, 60.0, WHITE);
+                    text_o("PREPARAR...", 640.0, 290.0, 60.0, WHITE);
                 }
             }
             Phase::Play => {
                 if sim.time_left > sim.match_len - 0.8 {
-                    text_o("JÁ!", 640.0, 320.0, 110.0, hex(0xffd34d));
+                    text_o("JÁ!", 640.0, 304.0, 110.0, hex(0xffd34d));
                 }
             }
             Phase::Goal => {
-                let k = (self.goal_anim * 4.0).min(1.0);
-                let size = 60.0 + 80.0 * k + (self.goal_anim * 10.0).sin() * 6.0;
-                text_o("GOL!", 640.0, 320.0, size, hex(0xffd34d));
-                text_o(self.player_name(sim.last_scorer as usize), 640.0, 380.0, 34.0, WHITE);
+                let ga = self.goal_anim;
+                let k = (ga / 0.35).clamp(0.0, 1.0);
+                let elastic = if k < 1.0 {
+                    1.0 + 0.34 * (-5.0 * k).exp() * (k * 11.0).sin() - (1.0 - k).powi(3)
+                } else {
+                    1.0 + 0.04 * (ga * 8.0).sin()
+                };
+                let cy = 278.0;
+                // Rotating golden starburst rays behind "GOL!"
+                let rays = 12usize;
+                let r_outer = (225.0 * elastic).clamp(60.0, 290.0);
+                for r_i in 0..rays {
+                    let a0 = t * 1.1 + (r_i as f32) * (std::f32::consts::TAU / rays as f32);
+                    let a1 = a0 + 0.19;
+                    tri(
+                        (640.0, cy - 16.0),
+                        (640.0 + a0.cos() * r_outer, cy - 16.0 + a0.sin() * r_outer * 0.68),
+                        (640.0 + a1.cos() * r_outer, cy - 16.0 + a1.sin() * r_outer * 0.68),
+                        with_a(hex(0xffe14a), 0.24),
+                    );
+                }
+                circ(640.0, cy - 16.0, (92.0 * elastic).max(20.0), with_a(hex(0xffb820), 0.22));
+                let size = (138.0 * elastic).max(38.0);
+                text_o("GOL!", 640.0, cy + 28.0, size, hex(0xffd34d));
+                let scorer = sim.last_scorer as usize % 2;
+                let sname = self.player_name(scorer);
+                let pill_w = (text_w(sname, 30.0) + 64.0).max(180.0);
+                let pill_col = if scorer == 0 { hex(0x1a5cd4) } else { hex(0xcf2438) };
+                rrect(640.0 - pill_w * 0.5, cy + 50.0, pill_w, 44.0, 22.0, with_a(pill_col, 0.90));
+                rect_line(640.0 - pill_w * 0.5 + 2.0, cy + 52.0, pill_w - 4.0, 40.0, 2.0, with_a(hex(0xffd34d), 0.75));
+                text_o(sname, 640.0, cy + 82.0, 30.0, WHITE);
             }
             Phase::Over => {
                 if self.over_t <= 1.2 {
-                    text_o("FIM DE JOGO", 640.0, 320.0, 80.0, WHITE);
+                    text_o("FIM DE JOGO", 640.0, 304.0, 80.0, WHITE);
                 }
             }
         }
@@ -2105,6 +3355,12 @@ fn star(x: f32, y: f32, r: f32, c: Color) {
         tri((x + a.cos() * r, y + a.sin() * r), (x + b0.cos() * r * 0.42, y + b0.sin() * r * 0.42), (x + b1.cos() * r * 0.42, y + b1.sin() * r * 0.42), c);
     }
     circ(x, y, r * 0.45, c);
+}
+
+fn star_outlined(x: f32, y: f32, r: f32, c: Color) {
+    star(x, y + 1.0, r * 1.25, with_a(hex(0x140f08), c.a * 0.92));
+    star(x, y, r, c);
+    circ(x - r * 0.12, y - r * 0.12, r * 0.25, with_a(WHITE, c.a * 0.85));
 }
 
 
@@ -2224,7 +3480,13 @@ async fn amain(run: Run, prev_fg: isize) {
                     }
                 }
                 app.scene_setup(name);
-                let last = if name.starts_with("pw_") || *name == "stun" { 14 } else { 90 };
+                let last = if name.starts_with("pw_") || *name == "stun" {
+                    14
+                } else if *name == "goal" {
+                    24
+                } else {
+                    90
+                };
                 for f in 0..=last {
                     if first {
                         win::lower_window(prev_fg);

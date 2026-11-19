@@ -83,6 +83,10 @@ pub struct Sounds {
     pub jump: Sound,
     pub land: Sound,
     pub crowd: Sound,
+    pub ice_cast: Sound,
+    pub ice_crack: Sound,
+    pub ice_shatter: Sound,
+    pub power_pop: Sound,
 }
 
 impl Sounds {
@@ -112,6 +116,62 @@ impl Sounds {
         let jump = gen(0.12, |t, k, _| (TAU * (300.0 + 320.0 * k) * t).sin() * 0.4 * (1.0 - k).powi(2));
         let land = gen(0.10, |t, k, n| ((TAU * (95.0 - 30.0 * k) * t).sin() * 0.6 + n.next() * 0.25) * (1.0 - k).powi(3));
         let crowd = crowd_wave();
+        let ice_cast = gen(0.48, |t, k, n| {
+            // crystalline arctic freeze shimmer + frosty wind blast
+            let env = (k / 0.04).min(1.0) * (1.0 - k).powf(1.4);
+            let sweep = 1400.0 + 2200.0 * (1.0 - (1.0 - k).powi(2));
+            let shimmer = (TAU * sweep * t).sin() * 0.35
+                + (TAU * (sweep * 1.498) * t).sin() * 0.25
+                + (TAU * (3100.0 + 400.0 * (TAU * 18.0 * t).sin()) * t).sin() * 0.18;
+            let frost = n.next() * 0.32 * (1.0 - k).powi(2);
+            (shimmer + frost) * env * 0.85
+        });
+        let ice_crack = gen(0.13, |t, k, n| {
+            // sharp brittle fracture snap + high crystalline ping
+            let snap = if k < 0.18 { n.next() * (1.0 - k / 0.18) * 0.85 } else { 0.0 };
+            let crack2 = if k > 0.22 && k < 0.40 {
+                n.next() * (1.0 - (k - 0.22) / 0.18) * 0.55
+            } else {
+                0.0
+            };
+            let ping = ((TAU * (2850.0 - 600.0 * k) * t).sin() * 0.45
+                + (TAU * 4320.0 * t).sin() * 0.30)
+                * (1.0 - k).powi(3);
+            (snap + crack2 + ping) * 0.8
+        });
+        let ice_shatter = gen(0.42, |t, k, n| {
+            // crisp shatter burst followed by cascading ice shard tinkles
+            let burst = n.next() * 0.7 * (1.0 - k).powi(4);
+            let c1 = (TAU * 3400.0 * t).sin() * (1.0 - k).powi(2);
+            let c2 = if k > 0.06 {
+                let u = (k - 0.06) / 0.94;
+                (TAU * 4850.0 * t).sin() * (1.0 - u).powi(3)
+            } else {
+                0.0
+            };
+            let c3 = if k > 0.14 {
+                let u = (k - 0.14) / 0.86;
+                (TAU * 6100.0 * t).sin() * (1.0 - u).powi(3)
+            } else {
+                0.0
+            };
+            let c4 = if k > 0.22 {
+                let u = (k - 0.22) / 0.78;
+                (TAU * 2650.0 * t).sin() * (1.0 - u).powi(2)
+            } else {
+                0.0
+            };
+            let tinkle = (c1 * 0.35 + c2 * 0.30 + c3 * 0.22 + c4 * 0.22) * (0.7 + 0.3 * n.next().abs());
+            (burst + tinkle) * 0.85
+        });
+        let power_pop = gen(0.24, |t, k, n| {
+            // bouncy arcade pop/sparkle chime for Big / Invis / Clone activation
+            let env = (k / 0.03).min(1.0) * (1.0 - k).powf(1.6);
+            let f = 240.0 + 740.0 * k.sqrt();
+            let pop = (TAU * f * t).sin() * 0.65 + (TAU * (f * 2.0) * t).sin() * 0.25;
+            let spark = n.next() * 0.18 * (1.0 - k).powi(4);
+            (pop + spark) * env * 0.85
+        });
         Some(Sounds {
             kick: load_sound_from_bytes(&kick).await.ok()?,
             head: load_sound_from_bytes(&head).await.ok()?,
@@ -125,6 +185,10 @@ impl Sounds {
             jump: load_sound_from_bytes(&jump).await.ok()?,
             land: load_sound_from_bytes(&land).await.ok()?,
             crowd: load_sound_from_bytes(&crowd).await.ok()?,
+            ice_cast: load_sound_from_bytes(&ice_cast).await.ok()?,
+            ice_crack: load_sound_from_bytes(&ice_crack).await.ok()?,
+            ice_shatter: load_sound_from_bytes(&ice_shatter).await.ok()?,
+            power_pop: load_sound_from_bytes(&power_pop).await.ok()?,
         })
     }
 

@@ -18,9 +18,9 @@ pub struct Level {
 }
 
 pub const LEVELS: [Level; 3] = [
-    Level { reaction: 0.26, mistake: 0.35, aim: 40.0 },
-    Level { reaction: 0.14, mistake: 0.15, aim: 18.0 },
-    Level { reaction: 0.06, mistake: 0.04, aim: 6.0 },
+    Level { reaction: 0.26, mistake: 0.35, aim: 46.0 },
+    Level { reaction: 0.14, mistake: 0.15, aim: 20.0 },
+    Level { reaction: 0.06, mistake: 0.04, aim: 8.0 },
 ];
 
 impl AiMem {
@@ -64,33 +64,46 @@ pub fn think(sim: &Sim, me: usize, level: usize, mem: &mut AiMem, dt: f32) -> In
         return inp;
     }
 
+    // While frozen in ice, Normal/Hard AI slowly mashes buttons to crack out faster.
+    if p.frozen > 0.0 {
+        if sim.phase == Phase::Play && level > 0 {
+            let mash_chance = if level >= 2 { 0.70 } else { 0.55 };
+            if mem.rand() < mash_chance {
+                inp.kick = true;
+            }
+        }
+        mem.held = inp;
+        return inp;
+    }
+
     // where the ball will be soon (simple ballistic guess)
-    let t = 0.22;
+    let t = 0.20;
+    let br = b.r();
     let mut px = b.x + b.vx * t;
-    px = px.clamp(BALL_R, W - BALL_R);
+    px = px.clamp(br, W - br);
 
     // distance from own goal, positive toward the opponent
     let ball_fwd = s * (px - p.x);
-    let ball_toward_goal = s * b.vx < -250.0;
-    let ball_behind = ball_fwd < -10.0;
+    let ball_toward_goal = s * b.vx < -320.0;
+    let ball_behind = ball_fwd < -BALL_R * 0.45;
 
     let err = (mem.rand() - 0.5) * 2.0 * lv.aim;
-    let mut target = if ball_behind || (ball_toward_goal && s * (px - own_goal) < 520.0) {
+    let mut target = if ball_behind || (ball_toward_goal && s * (px - own_goal) < 540.0) {
         // get back between the ball and our goal
-        px - s * (HEAD_R + 30.0)
+        px - s * (HEAD_R + BALL_R + 12.0)
     } else {
         // stand just behind the ball so touches push it forward
-        px - s * (HEAD_R * 0.8)
+        px - s * (HEAD_R * 0.85)
     };
     // don't stray too far from goal when the opponent has the ball near us
-    if s * (o.x - own_goal) < 300.0 && s * (px - own_goal) < 350.0 {
-        target = target.min(W).max(0.0);
+    if s * (o.x - own_goal) < 340.0 && s * (px - own_goal) < 400.0 {
+        target = target.clamp(HEAD_R + 4.0, W - HEAD_R - 4.0);
     }
     target += err;
     let dx = target - p.x;
-    if dx > 8.0 {
+    if dx > 10.0 {
         inp.right = true;
-    } else if dx < -8.0 {
+    } else if dx < -10.0 {
         inp.left = true;
     }
 
@@ -100,28 +113,36 @@ pub fn think(sim: &Sim, me: usize, level: usize, mem: &mut AiMem, dt: f32) -> In
 
     if sim.phase == Phase::Play && !skip {
         // ball near the feet and in front: kick
-        if ahead > -5.0 && ahead < 95.0 && b.y > p.y - 10.0 && dist < 120.0 {
-            if b.y < p.y + 20.0 && mem.rand() < 0.5 {
+        let kick_reach = HEAD_R + br + FOOT_R + KICK_REACH;
+        if ahead > -br * 0.25 && ahead < kick_reach && b.y > p.y - HEAD_R * 0.25 && dist < kick_reach + 32.0 {
+            if b.y < p.y + BODY_OFF * 0.65 && mem.rand() < 0.5 {
                 inp.lob = true;
             } else {
                 inp.kick = true;
             }
         }
-        // ball dropping above us: head it
-        if (b.x - p.x).abs() < 70.0 && b.y < p.y - 40.0 && b.y > p.y - 260.0 && b.vy > -100.0 {
+        // ball dropping above us: head it (scaled to 258 px jump rise)
+        if (b.x - p.x).abs() < HEAD_R + br + 12.0 && b.y < p.y - HEAD_R * 0.9 && b.y > p.y - 340.0 && b.vy > -140.0 {
             inp.jump = true;
         }
         // ball flying at our goal at head height: block it
-        if ball_toward_goal && (b.x - p.x).abs() < 160.0 && b.y < p.y - 20.0 {
+        if ball_toward_goal && (b.x - p.x).abs() < 210.0 && b.y < p.y - HEAD_R * 0.35 && b.y > BAR_Y - br {
             inp.jump = true;
         }
-        // opponent close in front: a kick knocks them down
+        // opponent close in front: a kick knocks them down (skip if already frozen)
         let oa = s * (o.x - p.x);
-        if oa > 0.0 && oa < 90.0 && mem.rand() < 0.25 {
+        if oa > 0.0 && oa < HEAD_R * 2.0 + 18.0 && (o.y - p.y).abs() < FEET && o.frozen <= 0.0 && mem.rand() < 0.25 {
             inp.kick = true;
         }
-        if p.power >= 1.0 && dist < 260.0 && ahead > 0.0 {
-            inp.power = true;
+        if p.power >= 1.0 {
+            let use_now = match p.pkind {
+                PK_ICE => o.frozen <= 0.0 && mem.rand() < 0.45,
+                PK_BIG | PK_INVIS => dist < 380.0,
+                _ => dist < 320.0 && ahead > -br,
+            };
+            if use_now {
+                inp.power = true;
+            }
         }
     }
     mem.held = inp;

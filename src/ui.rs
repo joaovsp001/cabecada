@@ -24,7 +24,7 @@ pub const STADIUM_NAMES: [&str; 3] = ["Noite", "Pôr do Sol", "Final"];
 pub const POWER_INFO: [&str; 7] = [
     "o próximo chute vai reto no gol e derruba quem estiver no caminho",
     "a bola fica gigante por alguns segundos",
-    "o próximo chute congela o adversário que encostar na bola",
+    "congela o adversário na hora (aperte botões para quebrar o gelo)",
     "a bola some para o adversário por alguns segundos",
     "o próximo chute vira uma bomba que explode perto do adversário",
     "o próximo chute solta duas bolas falsas para confundir",
@@ -167,12 +167,14 @@ impl App {
         let bob1 = (t * 2.8).sin() * 6.0;
         let bob2 = (t * 2.8 + 1.6).sin() * 6.0;
         let (c0, c1) = (self.set.look as usize % 6, self.set.look2 as usize % 6);
-        ellipse(190.0, 512.0, 58.0, 14.0, with_a(BLACK, 0.35));
+        ellipse(190.0, 512.0, 62.0, 14.0, with_a(BLACK, 0.35));
+        draw_char_jersey(c0, 190.0, 444.0 + bob1 * 0.5, 1.25, false, 0.0, WHITE);
         tex_center(&self.assets.boots[c0], 198.0, 488.0 + bob1 * 0.3, 96.0, 64.0, WHITE, false, -0.05);
-        tex_center(&self.assets.heads[c0], 190.0, 404.0 + bob1, 168.0, 168.0, WHITE, false, (t * 1.4).sin() * 0.04);
-        ellipse(1090.0, 512.0, 58.0, 14.0, with_a(BLACK, 0.35));
+        tex_center(&self.assets.heads[c0], 190.0, 394.0 + bob1, 168.0, 168.0, WHITE, false, (t * 1.4).sin() * 0.04);
+        ellipse(1090.0, 512.0, 62.0, 14.0, with_a(BLACK, 0.35));
+        draw_char_jersey(c1, 1090.0, 444.0 + bob2 * 0.5, 1.25, true, 0.0, WHITE);
         tex_center(&self.assets.boots[c1], 1082.0, 488.0 + bob2 * 0.3, 96.0, 64.0, WHITE, true, 0.05);
-        tex_center(&self.assets.heads[c1], 1090.0, 404.0 + bob2, 168.0, 168.0, WHITE, true, -(t * 1.4).sin() * 0.04);
+        tex_center(&self.assets.heads[c1], 1090.0, 394.0 + bob2, 168.0, 168.0, WHITE, true, -(t * 1.4).sin() * 0.04);
         text_o(CHARS[c0].name, 190.0, 560.0, 28.0, WHITE);
         text_o(CHARS[c1].name, 1090.0, 560.0, 28.0, WHITE);
 
@@ -289,9 +291,11 @@ impl App {
         text_o(you, 320.0, 140.0, 26.0, hex(0xcfe3ff));
         let look = self.set.look as usize % 6;
         let t = self.now as f32;
-        ellipse(320.0, 352.0, 70.0, 14.0, with_a(BLACK, 0.35));
+        let bob = (t * 2.6).sin() * 4.0;
+        ellipse(320.0, 354.0, 74.0, 14.0, with_a(BLACK, 0.35));
+        draw_char_jersey(look, 320.0, 282.0 + bob * 0.45, 1.38, false, 0.0, WHITE);
         tex_center(&self.assets.boots[look], 330.0, 330.0, 110.0, 74.0, WHITE, false, -0.05);
-        tex_center(&self.assets.heads[look], 320.0, 246.0 + (t * 2.6).sin() * 4.0, 190.0, 190.0, WHITE, false, 0.0);
+        tex_center(&self.assets.heads[look], 320.0, 232.0 + bob, 190.0, 190.0, WHITE, false, 0.0);
         if round_button(self, 110.0, 250.0, 34.0, "icon_prev", |x, y, r| arrow_icon(x, y, r, -1.0)) {
             self.set.look = (self.set.look + 5) % 6;
         }
@@ -534,8 +538,9 @@ impl App {
         self.draw_band();
         dim_screen(with_a(BLACK, 0.25));
         let (l, t, r, b) = screen_box();
-        text_o("Arraste os botões para onde quiser", 640.0, t + 156.0, 34.0, WHITE);
-        text_o(&format!("Tamanho {}%  -  Visibilidade {}%  (mude nas configurações)", self.set.btn_scale, self.set.btn_alpha), 640.0, t + 194.0, 22.0, hex(0xcfe3ff));
+        rrect(250.0, t + 114.0, 780.0, 96.0, 20.0, with_a(hex(0x0b1430), 0.78));
+        text_o("Arraste os botões para onde quiser", 640.0, t + 154.0, 34.0, WHITE);
+        text_o(&format!("Tamanho {}%  -  Visibilidade {}%  (mude nas configurações)", self.set.btn_scale, self.set.btn_alpha), 640.0, t + 192.0, 22.0, hex(0xcfe3ff));
         let layout = touch_layout(Mode::Cpu, &self.set);
         let (mx, my) = to_virtual(mouse_position().0, mouse_position().1);
         if is_mouse_button_pressed(MouseButton::Left) {

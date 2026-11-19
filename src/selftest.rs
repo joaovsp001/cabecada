@@ -37,8 +37,8 @@ impl SelfTest {
             p.reset();
         }
         app.sim.p[0].x = px;
-        app.sim.p[1].x = if px > 640.0 { 200.0 } else { 1100.0 };
-        app.sim.ball = Ball { x: px + 60.0, y: GROUND - BALL_R, ..Default::default() };
+        app.sim.p[1].x = if px > 640.0 { 220.0 } else { 1060.0 };
+        app.sim.ball = Ball { x: px + HEAD_R + BALL_R + 4.0, y: GROUND - BALL_R, ..Default::default() };
     }
 
     /// One frame of the script. Returns true when everything ran.
@@ -73,7 +73,7 @@ impl SelfTest {
                 if f == 75 {
                     let rise = self.y0 - self.miny;
                     let landed = app.sim.p[0].on_ground;
-                    self.push("jump", rise > 120.0 && landed, format!("jumped {:.0} px high and landed again: {}", rise, landed));
+                    self.push("jump", rise > 180.0 && landed, format!("jumped {:.0} px high and landed again: {}", rise, landed));
                     return false;
                 }
             }
@@ -92,7 +92,7 @@ impl SelfTest {
             }
             4 => {
                 if f == 0 {
-                    Self::place_kick(app, 1000.0);
+                    Self::place_kick(app, 980.0);
                     app.sim.score = [0, 0];
                 }
                 inp[0].kick = f == 1;
@@ -113,7 +113,7 @@ impl SelfTest {
                 if f == 9 {
                     let b = app.sim.ball;
                     let sp = (b.vx * b.vx + b.vy * b.vy).sqrt();
-                    let ok = b.fire > 0.0 && sp > 1200.0 && app.sim.p[0].power < 0.2;
+                    let ok = b.fire > 0.0 && sp > 1400.0 && app.sim.p[0].power < 0.2;
                     self.push("power", ok, format!("full power bar used: the next kick became a power shot at {:.0} px/s", sp));
                     return false;
                 }
@@ -126,9 +126,17 @@ impl SelfTest {
                     app.sim.p[0].pkind = k;
                     app.sim.p[0].power = 1.0;
                     app.sim.p[1].x = 720.0; // in the path of the shot
+                    if k == PK_ICE {
+                        // freeze opponent in mid-air to verify instant air-suspension + mash breakout
+                        app.sim.p[1].y = GROUND - FEET - 80.0;
+                        app.sim.p[1].on_ground = false;
+                    }
                 }
                 inp[0].power = f == 1;
                 inp[0].kick = f == 4;
+                if k == PK_ICE && (f == 10 || f == 18 || f == 26) {
+                    inp[1].kick = true; // 3 rising-edge button mashes while frozen
+                }
                 let b = app.sim.ball;
                 let name = POWER_NAMES[k as usize];
                 let mut result: Option<(bool, String)> = None;
@@ -136,7 +144,8 @@ impl SelfTest {
                     PK_BIG if f == 8 => result = Some((b.big > 0.0 && b.r() > BALL_R * 1.5, format!("{}: ball radius {:.0} px", name, b.r()))),
                     PK_ICE if f == 40 => {
                         let q = app.sim.p[1];
-                        result = Some((q.frozen > 0.0, format!("{}: opponent frozen {:.1} s", name, q.frozen.max(0.0))));
+                        let ok = q.frozen > 0.0 && q.frozen < FREEZE_TIME - 1.0 && q.stun == 0.0 && q.y < GROUND - FEET - 40.0;
+                        result = Some((ok, format!("{}: opponent frozen mid-air {:.2} s (after 3 mashes)", name, q.frozen.max(0.0))));
                     }
                     PK_INVIS if f == 8 => result = Some((b.invis > 0.0, format!("{}: ball hidden for {:.1} s", name, b.invis))),
                     PK_BOMB => {
@@ -180,7 +189,7 @@ impl SelfTest {
                     app.start_match(Mode::Cpu);
                     app.set.level = 1;
                     app.sim.phase = Phase::Play;
-                    app.sim.ball = Ball { x: 760.0, y: 300.0, ..Default::default() };
+                    app.sim.ball = Ball { x: 760.0, y: 260.0, ..Default::default() };
                     self.x0 = app.sim.p[1].x;
                 }
                 if f == 150 {
@@ -269,7 +278,7 @@ fn overtime_test() -> (bool, String) {
         return (false, format!("the clock should stay at zero in overtime (time {:.2}, phase {:?})", s.time_left, s.phase));
     }
     // a goal ends it
-    s.ball = Ball { x: W - 20.0, y: GROUND - 30.0, ..Default::default() };
+    s.ball = Ball { x: W - 35.0, y: GROUND - 40.0, ..Default::default() };
     for _ in 0..600 {
         s.step(dt, none);
         if s.phase == Phase::Over {

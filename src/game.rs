@@ -4,60 +4,60 @@
 
 pub const W: f32 = 1280.0;
 pub const H: f32 = 720.0;
-pub const GROUND: f32 = 620.0;
+pub const GROUND: f32 = 560.0;
 
-pub const GOAL_DEPTH: f32 = 86.0; // goal line distance from the side wall
-pub const BAR_Y: f32 = 388.0; // top of the crossbar
-pub const BAR_H: f32 = 12.0; // crossbar thickness
-pub const BAR_LEN: f32 = 100.0; // crossbar length from the side wall
+pub const GOAL_DEPTH: f32 = 104.0; // goal line distance from the side wall
+pub const BAR_Y: f32 = 308.0; // top of the crossbar
+pub const BAR_H: f32 = 14.0; // crossbar thickness
+pub const BAR_LEN: f32 = 114.0; // crossbar length from the side wall
 
-pub const HEAD_R: f32 = 44.0;
-pub const BODY_OFF: f32 = 38.0; // body circle centre below head centre
-pub const BODY_R: f32 = 24.0;
-pub const FEET: f32 = BODY_OFF + BODY_R; // head centre to sole
-pub const FOOT_R: f32 = 15.0;
+pub const HEAD_R: f32 = 56.0;
+pub const BODY_OFF: f32 = 52.0; // body circle centre below head centre
+pub const BODY_R: f32 = 32.0;
+pub const FEET: f32 = BODY_OFF + BODY_R; // head centre to sole (84.0)
+pub const FOOT_R: f32 = 20.0;
 
-pub const BALL_R: f32 = 21.0;
+pub const BALL_R: f32 = 30.0;
 
-pub const GRAVITY: f32 = 1900.0;
-pub const BALL_GRAVITY: f32 = 1250.0;
-pub const MOVE_SPEED: f32 = 340.0;
-pub const GROUND_ACCEL: f32 = 4200.0;
-pub const AIR_ACCEL: f32 = 2600.0;
-pub const JUMP_SPEED: f32 = 830.0;
+pub const GRAVITY: f32 = 3000.0;
+pub const BALL_GRAVITY: f32 = 1480.0;
+pub const MOVE_SPEED: f32 = 470.0;
+pub const GROUND_ACCEL: f32 = 5800.0;
+pub const AIR_ACCEL: f32 = 3400.0;
+pub const JUMP_SPEED: f32 = 1245.0;
 
 pub const BALL_AIR_DRAG: f32 = 0.12; // per second
-pub const BALL_GROUND_E: f32 = 0.70;
+pub const BALL_GROUND_E: f32 = 0.74;
 pub const BALL_WALL_E: f32 = 0.80;
 pub const BALL_BAR_E: f32 = 0.75;
 pub const BALL_ROLL_FRICTION: f32 = 0.9; // per second while rolling
-pub const BALL_MAX_SPEED: f32 = 1750.0;
+pub const BALL_MAX_SPEED: f32 = 1950.0;
 pub const HEAD_E: f32 = 0.62;
-pub const HEAD_BOOST: f32 = 90.0;
+pub const HEAD_BOOST: f32 = 110.0;
 
 pub const KICK_TIME: f32 = 0.20;
 pub const KICK_COOLDOWN: f32 = 0.33;
-pub const KICK_REACH: f32 = 16.0;
-pub const LOW_KICK_SPEED: f32 = 980.0;
-pub const LOW_KICK_DIR: (f32, f32) = (0.85, -0.53);
-pub const HIGH_KICK_SPEED: f32 = 1080.0;
+pub const KICK_REACH: f32 = 22.0;
+pub const LOW_KICK_SPEED: f32 = 1120.0;
+pub const LOW_KICK_DIR: (f32, f32) = (0.89, -0.45);
+pub const HIGH_KICK_SPEED: f32 = 1220.0;
 pub const HIGH_KICK_DIR: (f32, f32) = (0.52, -0.85);
 pub const KICK_CARRY: f32 = 0.25; // share of the player's speed added to a kick
 pub const KICK_STUN: f32 = 0.9; // kicking the opponent knocks them down
-pub const KICK_KNOCK: f32 = 260.0;
+pub const KICK_KNOCK: f32 = 340.0;
 
 pub const POWER_CHARGE_TIME: f32 = 20.0; // seconds to fill the power bar
 pub const POWER_PER_TOUCH: f32 = 0.05;
 pub const POWER_READY_TIME: f32 = 6.0; // how long the power waits for a kick
-pub const FIRE_SPEED: f32 = 1550.0;
+pub const FIRE_SPEED: f32 = 1750.0;
 pub const FIRE_TIME: f32 = 1.1;
 pub const FIRE_STUN: f32 = 1.6;
-pub const FIRE_KNOCK: f32 = 520.0;
+pub const FIRE_KNOCK: f32 = 620.0;
 
 // the power each player brings (chosen before the match)
 pub const PK_FIRE: u8 = 0; // next kick: a fire shot straight at the goal
 pub const PK_BIG: u8 = 1; // the ball grows for a while
-pub const PK_ICE: u8 = 2; // next kick: an ice shot that freezes the opponent it hits
+pub const PK_ICE: u8 = 2; // instant freeze: encases the opponent in ice (even mid-air)
 pub const PK_INVIS: u8 = 3; // the ball disappears for the opponent
 pub const PK_BOMB: u8 = 4; // next kick: the ball becomes a bomb that blows the opponent away
 pub const PK_CLONE: u8 = 5; // next kick: two fake balls fly off beside the real one
@@ -89,21 +89,22 @@ pub fn char_stats(look: u8) -> &'static CharStats {
 }
 
 pub const BIG_TIME: f32 = 7.0;
-pub const BIG_SCALE: f32 = 1.9;
-pub const ICE_SPEED: f32 = 1250.0;
-pub const ICE_TIME: f32 = 1.4;
-pub const FREEZE_TIME: f32 = 2.6;
+pub const BIG_SCALE: f32 = 1.85;
+pub const FREEZE_TIME: f32 = 3.2;
+pub const FREEZE_MASH_REDUCE: f32 = 0.22;
+pub const FREEZE_MASH_CD: f32 = 0.08;
+pub const FREEZE_MIN_TIME: f32 = 1.0;
 pub const INVIS_TIME: f32 = 4.0;
 pub const BOMB_FUSE: f32 = 2.2;
-pub const BOMB_RADIUS: f32 = 220.0;
+pub const BOMB_RADIUS: f32 = 260.0;
 pub const BOMB_STUN: f32 = 1.8;
-pub const BOMB_KNOCK: f32 = 650.0;
+pub const BOMB_KNOCK: f32 = 760.0;
 pub const CLONE_TIME: f32 = 4.5;
 
 pub const COUNTDOWN: f32 = 3.0;
 pub const GOAL_PAUSE: f32 = 2.2;
 pub const KICKOFF_READY: f32 = 1.0;
-pub const BALL_DROP_Y: f32 = 170.0;
+pub const BALL_DROP_Y: f32 = 175.0;
 
 pub const MATCH_LENGTHS: [f32; 3] = [60.0, 90.0, 120.0];
 
@@ -119,7 +120,15 @@ pub const EV_STUN: u32 = 128;
 pub const EV_BEEP: u32 = 256;
 pub const EV_FIRE: u32 = 512;
 pub const EV_BOOM: u32 = 1024;
+#[allow(dead_code)]
 pub const EV_FREEZE: u32 = 2048;
+pub const EV_ICE_CAST: u32 = 1 << 12;
+pub const EV_ICE_CRACK: u32 = 1 << 13;
+pub const EV_THAW: u32 = 1 << 14;
+pub const EV_BIG_CAST: u32 = 1 << 15;
+pub const EV_INVIS_CAST: u32 = 1 << 16;
+pub const EV_CLONE_CAST: u32 = 1 << 17;
+pub const EV_NET_HIT: u32 = 1 << 18;
 
 #[derive(Clone, Copy, Default, Debug, PartialEq)]
 pub struct Input {
@@ -179,7 +188,7 @@ pub struct Player {
     pub power_ready: f32,
     pub walk: f32, // walk animation phase
     pub pkind: u8, // which power this player brings (PK_*)
-    pub frozen: f32, // frozen in ice (also counts as stunned)
+    pub frozen: f32, // frozen in ice (separate from stun; mash buttons to break out)
     pub look: u8, // which character (CHARS): its face and its attributes
 }
 
@@ -207,14 +216,14 @@ impl Player {
     }
     /// Where the kicking foot is now.
     pub fn foot(&self) -> (f32, f32) {
-        let rest = (self.x + self.side * 16.0, self.y + FEET - FOOT_R);
+        let rest = (self.x + self.side * 22.0, self.y + FEET - FOOT_R);
         if self.kick_t < 0.0 {
             return rest;
         }
         let ext = if self.kick_kind == 2 {
-            (self.x + self.side * 46.0, self.y + 16.0)
+            (self.x + self.side * 66.0, self.y + 22.0)
         } else {
-            (self.x + self.side * 54.0, self.y + 46.0)
+            (self.x + self.side * 74.0, self.y + 62.0)
         };
         let k = (self.kick_t / KICK_TIME).clamp(0.0, 1.0);
         let f = (k * std::f32::consts::PI).sin();
@@ -298,6 +307,8 @@ pub struct Sim {
     pub stadium: u8,    // which stadium picture (sent to the other device too)
     prev: [Input; 2],
     rng: u32,
+    freeze_mash_cd: [f32; 2],
+    freeze_age: [f32; 2],
 }
 
 fn len(x: f32, y: f32) -> f32 {
@@ -321,6 +332,8 @@ impl Sim {
             stadium: 0,
             prev: [Input::default(); 2],
             rng: 0x9e3779b9,
+            freeze_mash_cd: [0.0; 2],
+            freeze_age: [0.0; 2],
         };
         s.reset_ball();
         s
@@ -334,6 +347,8 @@ impl Sim {
             for p in self.p.iter_mut() {
                 p.reset();
             }
+            self.freeze_mash_cd = [0.0; 2];
+            self.freeze_age = [0.0; 2];
             self.reset_ball();
             self.phase = Phase::Ready;
             self.phase_t = KICKOFF_READY * 2.0;
@@ -409,6 +424,8 @@ impl Sim {
                         for p in self.p.iter_mut() {
                             p.reset();
                         }
+                        self.freeze_mash_cd = [0.0; 2];
+                        self.freeze_age = [0.0; 2];
                         self.reset_ball();
                         self.phase = Phase::Ready;
                         self.phase_t = KICKOFF_READY;
@@ -423,9 +440,12 @@ impl Sim {
     }
 
     fn step_players(&mut self, dt: f32, input: [Input; 2], prev: [Input; 2], can_kick: bool) {
+        let mut freeze_cast = [false; 2];
         for i in 0..2 {
             let inp = input[i];
             let pin = prev[i];
+            self.freeze_mash_cd[i] = (self.freeze_mash_cd[i] - dt).max(0.0);
+
             let p = &mut self.p[i];
             if self.phase == Phase::Play {
                 p.power = (p.power + dt / POWER_CHARGE_TIME * char_stats(p.look).charge).min(1.0);
@@ -438,12 +458,42 @@ impl Sim {
                 }
             }
             if p.frozen > 0.0 {
+                self.freeze_age[i] += dt;
                 p.frozen -= dt;
-                p.stun = p.stun.max(p.frozen);
+                let mash = (inp.left && !pin.left)
+                    || (inp.right && !pin.right)
+                    || (inp.jump && !pin.jump)
+                    || (inp.kick && !pin.kick)
+                    || (inp.lob && !pin.lob);
+                if mash && self.freeze_mash_cd[i] <= 0.0 && p.frozen > 0.0 {
+                    let floor = (FREEZE_MIN_TIME - self.freeze_age[i]).max(0.0);
+                    let next = (p.frozen - FREEZE_MASH_REDUCE).max(floor);
+                    if next < p.frozen {
+                        p.frozen = next;
+                        self.freeze_mash_cd[i] = FREEZE_MASH_CD;
+                        self.events |= EV_ICE_CRACK;
+                    }
+                }
+                if p.frozen <= 0.0 {
+                    p.frozen = 0.0;
+                    self.freeze_age[i] = 0.0;
+                    self.freeze_mash_cd[i] = 0.0;
+                    self.events |= EV_THAW;
+                }
+            } else {
+                self.freeze_age[i] = 0.0;
             }
+            let frozen = p.frozen > 0.0;
             let stunned = p.stun > 0.0;
             if stunned {
-                p.stun -= dt;
+                p.stun = (p.stun - dt).max(0.0);
+            }
+            if frozen {
+                // Suspended solidly in ice (even in mid-air): no gravity, movement, jump, kick or power.
+                p.vx = 0.0;
+                p.vy = 0.0;
+                p.kick_t = -1.0;
+                continue;
             }
             let mut want = 0.0;
             if !stunned {
@@ -483,10 +533,18 @@ impl Sim {
                 p.power = 0.0;
                 self.events |= EV_POWER;
                 match p.pkind {
-                    PK_BIG => self.ball.big = BIG_TIME,
+                    PK_BIG => {
+                        self.ball.big = BIG_TIME;
+                        self.events |= EV_BIG_CAST;
+                    }
                     PK_INVIS => {
                         self.ball.invis = INVIS_TIME;
                         self.ball.invis_owner = i as u8;
+                        self.events |= EV_INVIS_CAST;
+                    }
+                    PK_ICE => {
+                        freeze_cast[1 - i] = true;
+                        self.events |= EV_ICE_CAST;
                     }
                     _ => p.power_ready = POWER_READY_TIME, // the next kick carries it
                 }
@@ -536,6 +594,16 @@ impl Sim {
                 }
             }
         }
+        for i in 0..2 {
+            if freeze_cast[i] {
+                self.p[i].frozen = FREEZE_TIME;
+                self.p[i].vx = 0.0;
+                self.p[i].vy = 0.0;
+                self.p[i].kick_t = -1.0;
+                self.freeze_age[i] = 0.0;
+                self.freeze_mash_cd[i] = 0.0;
+            }
+        }
         // players against each other
         self.collide_players();
         // kicks
@@ -551,6 +619,11 @@ impl Sim {
         let (a, b) = self.p.split_at_mut(1);
         let a = &mut a[0];
         let b = &mut b[0];
+        let af = a.frozen > 0.0;
+        let bf = b.frozen > 0.0;
+        if af && bf {
+            return;
+        }
         for (oa, _ob, ra) in pairs {
             for (ob2, _x, rb) in pairs {
                 let dx = b.x - a.x;
@@ -560,23 +633,28 @@ impl Sim {
                 if d < min && d > 0.001 {
                     let nx = dx / d;
                     let ny = dy / d;
-                    let push = (min - d) * 0.5;
-                    a.x -= nx * push;
-                    a.y -= ny * push;
-                    b.x += nx * push;
-                    b.y += ny * push;
+                    let pen = min - d;
+                    let (wa, wb) = match (af, bf) {
+                        (true, false) => (0.0, 1.0),
+                        (false, true) => (1.0, 0.0),
+                        _ => (0.5, 0.5),
+                    };
+                    a.x -= nx * pen * wa;
+                    a.y -= ny * pen * wa;
+                    b.x += nx * pen * wb;
+                    b.y += ny * pen * wb;
                     let rv = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
                     if rv < 0.0 {
-                        a.vx += rv * nx * 0.5;
-                        a.vy += rv * ny * 0.5;
-                        b.vx -= rv * nx * 0.5;
-                        b.vy -= rv * ny * 0.5;
+                        a.vx += rv * nx * wa;
+                        a.vy += rv * ny * wa;
+                        b.vx -= rv * nx * wb;
+                        b.vy -= rv * ny * wb;
                     }
-                    if ny > 0.6 {
+                    if ny > 0.6 && !af {
                         // a is on top of b
                         a.on_ground = true;
                         a.vy = a.vy.min(0.0);
-                    } else if ny < -0.6 {
+                    } else if ny < -0.6 && !bf {
                         b.on_ground = true;
                         b.vy = b.vy.min(0.0);
                     }
@@ -607,26 +685,20 @@ impl Sim {
                 b.vy = dy * sp + p.vy.min(0.0) * KICK_CARRY;
                 b.fire = 0.0;
                 match p.pkind {
-                    PK_ICE => {
-                        // a flat, fast shot toward the opponent
-                        b.vx = s * ICE_SPEED;
-                        b.vy = -120.0;
-                        b.ice = ICE_TIME;
-                        b.ice_owner = i as u8;
-                    }
                     PK_BOMB => {
                         b.bomb = BOMB_FUSE;
                         b.bomb_owner = i as u8;
+                        self.events |= EV_FIRE;
                     }
                     PK_CLONE | _ => {
                         // clones: two fake balls split above and below the real one
                         b.clone_t = CLONE_TIME;
                         let (vx, vy) = (b.vx, b.vy);
-                        b.clones = [[b.x, b.y, vx * 0.85, vy - 380.0], [b.x, b.y, vx * 1.1, vy + 300.0]];
+                        b.clones = [[b.x, b.y, vx * 0.85, vy - 420.0], [b.x, b.y, vx * 1.1, vy + 320.0]];
+                        self.events |= EV_CLONE_CAST;
                     }
                 }
                 self.p[i].power_ready = 0.0;
-                self.events |= EV_FIRE;
             } else if p.power_ready > 0.0 {
                 // power shot: straight at the far goal mouth
                 let gx = if s > 0.0 { W - GOAL_DEPTH * 0.5 } else { GOAL_DEPTH * 0.5 };
@@ -660,10 +732,10 @@ impl Sim {
         let oh = (self.p[o].x, self.p[o].y);
         let hit_body = len(ob.0 - fx, ob.1 - fy) < BODY_R + FOOT_R + 4.0;
         let hit_head = len(oh.0 - fx, oh.1 - fy) < HEAD_R + FOOT_R;
-        if (hit_body || hit_head) && self.p[o].stun <= 0.0 {
+        if (hit_body || hit_head) && self.p[o].stun <= 0.0 && self.p[o].frozen <= 0.0 {
             self.p[o].stun = KICK_STUN;
             self.p[o].vx = p.side * KICK_KNOCK;
-            self.p[o].vy = -200.0;
+            self.p[o].vy = -300.0;
             self.p[i].kick_hit = true;
             self.events |= EV_STUN;
         }
@@ -678,6 +750,7 @@ impl Sim {
     }
 
     fn step_powers(&mut self, dt: f32) {
+        let cr = self.ball.r();
         let b = &mut self.ball;
         b.big = (b.big - dt).max(0.0);
         b.invis = (b.invis - dt).max(0.0);
@@ -688,16 +761,16 @@ impl Sim {
                 c[3] += BALL_GRAVITY * dt;
                 c[0] += c[2] * dt;
                 c[1] += c[3] * dt;
-                if c[1] + BALL_R > GROUND {
-                    c[1] = GROUND - BALL_R;
+                if c[1] + cr > GROUND {
+                    c[1] = GROUND - cr;
                     c[3] = -c[3].abs() * BALL_GROUND_E;
                 }
-                if c[1] - BALL_R < 0.0 {
-                    c[1] = BALL_R;
+                if c[1] - cr < 0.0 {
+                    c[1] = cr;
                     c[3] = c[3].abs();
                 }
-                if c[0] - BALL_R < 0.0 || c[0] + BALL_R > W {
-                    c[0] = c[0].clamp(BALL_R, W - BALL_R);
+                if c[0] - cr < 0.0 || c[0] + cr > W {
+                    c[0] = c[0].clamp(cr, W - cr);
                     c[2] = -c[2] * BALL_WALL_E;
                 }
             }
@@ -706,16 +779,22 @@ impl Sim {
             b.bomb -= dt;
             if b.bomb <= 0.0 {
                 b.bomb = 0.0;
-                b.vy -= 500.0;
+                b.vy -= 560.0;
                 let (bx, by) = (b.x, b.y);
                 let o = 1 - b.bomb_owner as usize;
                 let q = &mut self.p[o];
                 let dx = q.x - bx;
                 let dy = q.y - by;
                 if len(dx, dy) < BOMB_RADIUS {
+                    if q.frozen > 0.0 {
+                        q.frozen = 0.0;
+                        self.freeze_age[o] = 0.0;
+                        self.freeze_mash_cd[o] = 0.0;
+                        self.events |= EV_THAW;
+                    }
                     q.stun = q.stun.max(BOMB_STUN);
                     q.vx = if dx >= 0.0 { BOMB_KNOCK } else { -BOMB_KNOCK };
-                    q.vy = -520.0;
+                    q.vy = -660.0;
                     self.events |= EV_STUN;
                 }
                 self.events |= EV_BOOM;
@@ -763,11 +842,19 @@ impl Sim {
         }
         if b.x - br < 0.0 {
             b.x = br;
-            b.vx = b.vx.abs() * BALL_WALL_E;
+            let in_net = b.y > BAR_Y + BAR_H;
+            if in_net && b.vx < -80.0 {
+                ev |= EV_NET_HIT;
+            }
+            b.vx = b.vx.abs() * if in_net { 0.48 } else { BALL_WALL_E };
         }
         if b.x + br > W {
             b.x = W - br;
-            b.vx = -b.vx.abs() * BALL_WALL_E;
+            let in_net = b.y > BAR_Y + BAR_H;
+            if in_net && b.vx > 80.0 {
+                ev |= EV_NET_HIT;
+            }
+            b.vx = -b.vx.abs() * if in_net { 0.48 } else { BALL_WALL_E };
         }
         for bx in [0.0, W - BAR_LEN] {
             if let Some((nx, ny, d)) = circle_rect(b.x, b.y, br, bx, BAR_Y, BAR_LEN, BAR_H) {
@@ -798,19 +885,12 @@ impl Sim {
                 let d = len(dx, dy);
                 let min = r + br;
                 if d < min && d > 0.001 {
-                    if b.ice > 0.0 && b.ice_owner as usize != i && self.p[i].frozen <= 0.0 {
-                        self.p[i].frozen = FREEZE_TIME;
-                        self.p[i].stun = FREEZE_TIME;
-                        self.p[i].vx = 0.0;
-                        b.ice = 0.0;
-                        self.events |= EV_FREEZE;
-                    }
                     if fire_through {
                         // a power shot knocks the player away and keeps going
-                        if self.p[i].stun <= 0.0 {
+                        if self.p[i].stun <= 0.0 && self.p[i].frozen <= 0.0 {
                             self.p[i].stun = FIRE_STUN;
                             self.p[i].vx = b.vx.signum() * FIRE_KNOCK;
-                            self.p[i].vy = -350.0;
+                            self.p[i].vy = -480.0;
                             self.events |= EV_STUN;
                         }
                         continue;
@@ -847,9 +927,12 @@ impl Sim {
     fn check_goal(&mut self) {
         let b = self.ball;
         let br = b.r();
-        let scorer = if b.x < GOAL_DEPTH - br && b.y > BAR_Y + BAR_H {
+        // Normal ball must fully cross GOAL_DEPTH; giant ball (2*r > GOAL_DEPTH) scores
+        // once its centre is deep inside the goal with room before the back wall.
+        let line = (GOAL_DEPTH - br).max(br + 12.0);
+        let scorer = if b.x < line && b.y > BAR_Y + BAR_H {
             Some(1u8)
-        } else if b.x > W - GOAL_DEPTH + br && b.y > BAR_Y + BAR_H {
+        } else if b.x > W - line && b.y > BAR_Y + BAR_H {
             Some(0u8)
         } else {
             None
@@ -867,7 +950,7 @@ impl Sim {
                 p.power_ready = 0.0;
                 p.kick_t = -1.0;
             }
-            self.events |= EV_GOAL;
+            self.events |= EV_GOAL | EV_NET_HIT;
         }
     }
 
@@ -1022,5 +1105,170 @@ pub fn circle_rect(cx: f32, cy: f32, r: f32, rx: f32, ry: f32, rw: f32, rh: f32)
         Some((-1.0, 0.0, left + r))
     } else {
         Some((1.0, 0.0, right + r))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const DT: f32 = 1.0 / 120.0;
+
+    #[test]
+    fn wire_roundtrip_preserves_190_bytes_and_events() {
+        let mut s = Sim::new(90.0);
+        s.score = [3, 2];
+        s.p[0].x = 512.5;
+        s.p[1].frozen = 2.45;
+        s.events = EV_ICE_CAST | EV_ICE_CRACK | EV_THAW | EV_BIG_CAST | EV_INVIS_CAST | EV_CLONE_CAST | EV_NET_HIT;
+        let mut buf = Vec::new();
+        s.to_bytes(&mut buf);
+        assert_eq!(buf.len(), 190, "wire snapshot layout must stay 190 bytes");
+        let got = Sim::from_bytes(&buf).expect("from_bytes failed");
+        assert_eq!(got.score, [3, 2]);
+        assert!((got.p[0].x - 512.5).abs() < 1e-4);
+        assert!((got.p[1].frozen - 2.45).abs() < 1e-4);
+        assert_eq!(got.events, s.events);
+    }
+
+    #[test]
+    fn jump_clears_crossbar_and_lands_quickly() {
+        let mut s = Sim::new(90.0);
+        s.phase = Phase::Play;
+        let y0 = s.p[0].y;
+        let mut min_y = y0;
+        let mut landed_at = None;
+        for step in 0..140 {
+            let mut inp = [Input::default(); 2];
+            inp[0].jump = step < 3;
+            s.step(DT, inp);
+            min_y = min_y.min(s.p[0].y);
+            if step > 10 && s.p[0].on_ground && landed_at.is_none() {
+                landed_at = Some(step as f32 * DT);
+            }
+        }
+        let rise = y0 - min_y;
+        let sole_apex = min_y + FEET;
+        assert!(rise > 250.0, "jump rise {} too low", rise);
+        assert!(sole_apex < BAR_Y, "sole apex {} did not clear BAR_Y {}", sole_apex, BAR_Y);
+        assert!(landed_at.unwrap_or(9.9) < 0.95, "jump airtime too long: {:?}", landed_at);
+    }
+
+    #[test]
+    fn instant_freeze_midair_and_mash_breakout() {
+        let mut s = Sim::new(90.0);
+        s.phase = Phase::Play;
+        s.p[0].pkind = PK_ICE;
+        s.p[0].power = 1.0;
+        // Put opponent in mid-air before freezing
+        s.p[1].y = GROUND - FEET - 120.0;
+        s.p[1].vy = -200.0;
+        s.p[1].on_ground = false;
+
+        let mut inp = [Input::default(); 2];
+        inp[0].power = true;
+        s.step(DT, inp);
+        let ev = s.take_events();
+        assert!(ev & EV_ICE_CAST != 0, "expected EV_ICE_CAST");
+        assert!((s.p[1].frozen - FREEZE_TIME).abs() < 1e-3);
+        assert_eq!(s.p[1].stun, 0.0, "freeze must stay separate from stun");
+        assert_eq!(s.p[1].vx, 0.0);
+        assert_eq!(s.p[1].vy, 0.0);
+        let frozen_y = s.p[1].y;
+
+        // Hold still for 0.3s: must remain suspended at the same Y
+        for _ in 0..36 {
+            s.step(DT, [Input::default(); 2]);
+        }
+        assert!((s.p[1].y - frozen_y).abs() < 1e-4, "mid-air frozen player fell!");
+        assert!(s.p[1].frozen > 2.5);
+
+        // Rapid button mashing breaks out early, emitting EV_ICE_CRACK and EV_THAW
+        let mut cracks = 0;
+        let mut thawed = false;
+        let mut elapsed_steps = 36;
+        for step in 0..240 {
+            let mut m = [Input::default(); 2];
+            // Press kick every 12 steps (0.10 s > 0.08 s cooldown)
+            m[1].kick = step % 12 == 0;
+            s.step(DT, m);
+            elapsed_steps += 1;
+            let e = s.take_events();
+            if e & EV_ICE_CRACK != 0 {
+                cracks += 1;
+            }
+            if e & EV_THAW != 0 {
+                thawed = true;
+                break;
+            }
+        }
+        let total_secs = elapsed_steps as f32 * DT;
+        assert!(cracks >= 5, "expected multiple crack events, got {}", cracks);
+        assert!(thawed, "expected EV_THAW");
+        assert!(total_secs >= FREEZE_MIN_TIME - 0.02, "broke out before min floor: {} s", total_secs);
+        assert!(total_secs < 2.2, "button mashing did not shorten freeze: {} s", total_secs);
+
+        // After thaw, gravity resumes and player falls toward the ground
+        for _ in 0..10 {
+            s.step(DT, [Input::default(); 2]);
+        }
+        assert!(s.p[1].y > frozen_y + 1.0, "gravity did not resume after thaw");
+    }
+
+    #[test]
+    fn giant_ball_scores_and_power_events_fire() {
+        let mut s = Sim::new(90.0);
+        s.phase = Phase::Play;
+        s.p[0].pkind = PK_BIG;
+        s.p[0].power = 1.0;
+        let mut inp = [Input::default(); 2];
+        inp[0].power = true;
+        s.step(DT, inp);
+        assert!(s.take_events() & EV_BIG_CAST != 0);
+        assert!((s.ball.r() - BALL_R * BIG_SCALE).abs() < 1e-3);
+
+        // Kick giant ball into right goal
+        s.ball.x = W - GOAL_DEPTH - 20.0;
+        s.ball.y = GROUND - s.ball.r();
+        s.ball.vx = 900.0;
+        s.ball.vy = 0.0;
+        let mut scored_ev = 0;
+        for _ in 0..60 {
+            s.step(DT, [Input::default(); 2]);
+            scored_ev |= s.take_events();
+            if s.score[0] > 0 {
+                break;
+            }
+        }
+        assert_eq!(s.score[0], 1, "giant ball must be able to score");
+        assert!(scored_ev & EV_GOAL != 0);
+        assert!(scored_ev & EV_NET_HIT != 0);
+
+        // Invisible + Clone events
+        let mut s2 = Sim::new(90.0);
+        s2.phase = Phase::Play;
+        s2.p[0].pkind = PK_INVIS;
+        s2.p[0].power = 1.0;
+        s2.step(DT, inp);
+        assert!(s2.take_events() & EV_INVIS_CAST != 0);
+
+        let mut s3 = Sim::new(90.0);
+        s3.phase = Phase::Play;
+        s3.p[0].pkind = PK_CLONE;
+        s3.p[0].power = 1.0;
+        s3.p[0].x = 400.0;
+        s3.ball = Ball { x: 400.0 + HEAD_R + BALL_R + 4.0, y: GROUND - BALL_R, ..Default::default() };
+        s3.step(DT, inp);
+        s3.take_events();
+        let mut kick = [Input::default(); 2];
+        kick[0].kick = true;
+        let mut clone_ev = 0;
+        for _ in 0..6 {
+            s3.step(DT, kick);
+            clone_ev |= s3.take_events();
+            kick[0].kick = false;
+        }
+        assert!(clone_ev & EV_CLONE_CAST != 0, "expected EV_CLONE_CAST on clone kick");
+        assert!(s3.ball.clone_t > 0.0);
     }
 }
